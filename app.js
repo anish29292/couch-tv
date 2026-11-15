@@ -808,7 +808,8 @@
       el.className = "scene s-" + sceneClass(s);
       el.innerHTML = '<img class="sbg" alt="">' + (s.video ? '<video class="svid" muted loop playsinline preload="none"></video>' : "") +
         '<div class="shade"></div><div class="gclock"></div>' +
-        (s.water ? '<div class="gclock under"></div>' : "") + (s.fg ? '<img class="fg" alt="">' : "");
+        (s.water ? '<div class="gclock under"></div>' : "") + (s.fg ? '<img class="fg" alt="">' : "") +
+        (s.sunColl ? '<svg class="gclock-svg" aria-hidden="true"><text class="gclock-svg-t" x="50%" text-anchor="middle" font-family="Antonio,sans-serif" font-weight="700"></text></svg>' : "");
       if (s.mine) {   // your own scene: its clock from config.json (app.css, "your own scenes")
         el.className += " x-" + s.x + (s.inter ? " f-inter" : "") + (s.dark ? " t-dark" : "");
         el.style.setProperty("--my-top", s.y * 100 + "vh");

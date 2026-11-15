@@ -1,0 +1,12 @@
+{
+  "home": {
+    "scenes": ["ua-dawn", "ua-sunrise", "ua-midday", "ua-evening", "ua-night"],
+    "weather": {
+      "lat": 49.4094,
+      "lon": 8.6942,
+      "place": "Heidelberg",
+      "timezone": "Europe/Berlin"
+    },
+    "language": "en"
+  }
+}

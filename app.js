@@ -958,24 +958,22 @@
             var baseY = topPx + fs * 1.154;
             var glassUrl = "backgrounds/" + s.photo + (s.glass ? "-glass" : "") + ".jpg";
             var clipId = "gc-" + s.id;
+            var gradId = "gc-grad-" + s.id;
             var t = '<text x="50%" text-anchor="middle" font-family="Antonio,sans-serif" font-weight="700" font-size="' + fs + '" y="' + baseY + '">';
-            // Frosted glass effect: blurred photo fill clipped to glyph shapes + white tint + thin edge stroke
+            // Vertical fade: opaque white at top, transparent at bottom — clipped to glyph shapes
+            // gradientUnits="userSpaceOnUse" so y1/y2 are in px matching the clock top/bottom
+            var gradY1 = topPx;
+            var gradY2 = topPx + fs;   // approximate bottom of glyphs
             svgEl.innerHTML =
               '<defs>' +
-                '<filter id="gc-blur" x="-20%" y="-20%" width="140%" height="140%">' +
-                  '<feGaussianBlur stdDeviation="14"/>' +
-                '</filter>' +
-                '<clipPath id="' + clipId + '">' + t + hm + '</text></clipPath>' +
+                '<linearGradient id="' + gradId + '" x1="0" y1="' + gradY1 + '" x2="0" y2="' + gradY2 + '" gradientUnits="userSpaceOnUse">' +
+                  '<stop offset="0%" stop-color="rgba(255,255,255,0.92)"/>' +
+                  '<stop offset="55%" stop-color="rgba(255,255,255,0.72)"/>' +
+                  '<stop offset="100%" stop-color="rgba(255,255,255,0.0)"/>' +
+                '</linearGradient>' +
               '</defs>' +
-              // blurred photo clipped to glyph — frosted fill, no rectangle bleed
-              '<g clip-path="url(#' + clipId + ')">' +
-                '<image href="' + glassUrl + '" x="0" y="0" width="100%" height="100%"' +
-                ' preserveAspectRatio="xMidYMid slice" filter="url(#gc-blur)" opacity="0.7"/>' +
-              '</g>' +
-              // light white fill on top so digits read without looking painted
-              t.replace('>', ' fill="rgba(255,255,255,0.52)">') + hm + '</text>' +
-              // thin white edge stroke for crispness
-              t.replace('>', ' fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.5">') + hm + '</text>';
+              // solid filled text with vertical gradient — top bright, bottom transparent
+              t.replace('>', ' fill="url(#' + gradId + ')">') + hm + '</text>';
           }
         } else {
           f.style.backgroundImage = s.src ? cssUrl(s.src) : "url(backgrounds/" + s.photo + (s.glass ? "-glass" : "") + ".jpg)";

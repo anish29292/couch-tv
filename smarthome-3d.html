@@ -1983,6 +1983,7 @@ function openIroPicker(id, wrapEl) {
       const { r: cr, g: cg, b: cb } = color.rgb;
       lightState[id].color = [Math.round(cr), Math.round(cg), Math.round(cb)];
       applyLightState();
+      if (window.dispatchSmartHomeCommand) window.dispatchSmartHomeCommand(id, { color: lightState[id].color });
       // Deactivate all swatches for this device (custom colour selected)
       const row = document.querySelector(`.color-swatch-row[data-id="${id}"]`);
       if (row) row.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
@@ -2152,10 +2153,11 @@ function openRoomPanel(room) {
       sl.on('update', (vals) => {
         lightState[id].brightness = parseInt(vals[0]) / 100;
         applyLightState();
+        if (window.dispatchSmartHomeCommand) window.dispatchSmartHomeCommand(id, { brightness: lightState[id].brightness });
       });
       panelSliders[id] = sl;
     }
-  }
+  } // end for devices
 
   // Room scenes strip
   const roomSceneIds = ROOM_SCENES[room.id] || [];
@@ -2232,6 +2234,7 @@ panelCards.addEventListener('click', e => {
     const statusEl = document.getElementById(`status-${id}`);
     if (statusEl) statusEl.textContent = lightState[id].on ? 'ON' : 'OFF';
     applyLightState();
+    if (window.dispatchSmartHomeCommand) window.dispatchSmartHomeCommand(id, { on: lightState[id].on });
     if (activeBubbleId === id) {
       document.getElementById('bubble-toggle').classList.toggle('on', lightState[id].on);
     }
@@ -2246,6 +2249,7 @@ panelCards.addEventListener('click', e => {
     const [r,g,b] = swatch.dataset.rgb.split(',').map(Number);
     lightState[id].color = [r,g,b];
     applyLightState();
+    if (window.dispatchSmartHomeCommand) window.dispatchSmartHomeCommand(id, { color: [r,g,b] });
     const row = swatch.closest('.color-swatch-row');
     row.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
     swatch.classList.add('active');
@@ -2306,6 +2310,7 @@ function openBubble(id) {
     bubbleSlider.on('update', (vals) => {
       lightState[id].brightness = parseInt(vals[0]) / 100;
       applyLightState();
+      if (window.dispatchSmartHomeCommand) window.dispatchSmartHomeCommand(id, { brightness: lightState[id].brightness });
       // sync panel slider
       if (panelSliders[id]) panelSliders[id].set(vals[0]);
     });
@@ -2327,6 +2332,7 @@ document.getElementById('bubble-toggle').addEventListener('click', e => {
   lightState[id].on = !lightState[id].on;
   e.target.classList.toggle('on', lightState[id].on);
   applyLightState();
+  if (window.dispatchSmartHomeCommand) window.dispatchSmartHomeCommand(id, { on: lightState[id].on });
   // sync panel card
   const panelPill = panelCards.querySelector(`.toggle-pill[data-id="${id}"]`);
   if (panelPill) panelPill.classList.toggle('on', lightState[id].on);
@@ -2347,6 +2353,7 @@ document.getElementById('room-power-toggle').addEventListener('click', e => {
   lightDevices.forEach(id => { if (lightState[id]) lightState[id].on = newState; });
   e.target.classList.toggle('on', newState);
   applyLightState();
+  if (window.dispatchSmartHomeCommand) lightDevices.forEach(id => window.dispatchSmartHomeCommand(id, { on: newState }));
   // refresh all device card toggles + status labels
   lightDevices.forEach(id => {
     const pill = panelCards.querySelector(`.toggle-pill[data-id="${id}"]`);
@@ -2555,6 +2562,7 @@ document.querySelectorAll('.scene-btn').forEach(btn=>{
     btn.classList.add('active');
     for(const[id,[on,bri]]of Object.entries(preset)){if(lightState[id]){lightState[id].on=on;lightState[id].brightness=bri;}}
     applyLightState();
+    if (window.dispatchSmartHomeCommand) Object.entries(preset).forEach(([id,[on,bri]])=>{ if(lightState[id]) window.dispatchSmartHomeCommand(id,{on,brightness:bri}); });
     // refresh panel cards if open
     if (selectedRoom) openRoomPanel(selectedRoom);
   });
@@ -2629,5 +2637,6 @@ window.smartHome3D = {
   zoomCameraToDevice,
 };
 </script>
+<script src="smarthome-adapter.js"></script>
 </body>
 </html>

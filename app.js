@@ -958,22 +958,24 @@
             var baseY = topPx + fs * 1.154;
             var glassUrl = "backgrounds/" + s.photo + (s.glass ? "-glass" : "") + ".jpg";
             var clipId = "gc-" + s.id;
-            // Rebuild SVG: glass photo clipped through text shape + semi-transparent rim on top
+            var t = '<text x="50%" text-anchor="middle" font-family="Antonio,sans-serif" font-weight="700" font-size="' + fs + '" y="' + baseY + '">';
+            // Frosted glass effect: blurred photo fill clipped to glyph shapes + white tint + thin edge stroke
             svgEl.innerHTML =
               '<defs>' +
-                '<clipPath id="' + clipId + '">' +
-                  '<text x="50%" text-anchor="middle" font-family="Antonio,sans-serif" font-weight="700"' +
-                  ' font-size="' + fs + '" y="' + baseY + '">' + hm + '</text>' +
-                '</clipPath>' +
+                '<filter id="gc-blur" x="-20%" y="-20%" width="140%" height="140%">' +
+                  '<feGaussianBlur stdDeviation="14"/>' +
+                '</filter>' +
+                '<clipPath id="' + clipId + '">' + t + hm + '</text></clipPath>' +
               '</defs>' +
-              // glass fill: photo clipped through the glyph shapes
-              '<image href="' + glassUrl + '" x="0" y="0" width="100%" height="100%"' +
-              ' preserveAspectRatio="xMidYMid slice" clip-path="url(#' + clipId + ')" opacity="0.92"/>' +
-              // rim: faint white stroke so digits read against bright skies
-              '<text class="gclock-svg-t gclock-svg-rim" x="50%" text-anchor="middle"' +
-              ' font-family="Antonio,sans-serif" font-weight="700"' +
-              ' font-size="' + fs + '" y="' + baseY + '" fill="none"' +
-              ' stroke="rgba(255,255,255,0.45)" stroke-width="1.5">' + hm + '</text>';
+              // blurred photo clipped to glyph — frosted fill, no rectangle bleed
+              '<g clip-path="url(#' + clipId + ')">' +
+                '<image href="' + glassUrl + '" x="0" y="0" width="100%" height="100%"' +
+                ' preserveAspectRatio="xMidYMid slice" filter="url(#gc-blur)" opacity="0.7"/>' +
+              '</g>' +
+              // light white fill on top so digits read without looking painted
+              t.replace('>', ' fill="rgba(255,255,255,0.52)">') + hm + '</text>' +
+              // thin white edge stroke for crispness
+              t.replace('>', ' fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.5">') + hm + '</text>';
           }
         } else {
           f.style.backgroundImage = s.src ? cssUrl(s.src) : "url(backgrounds/" + s.photo + (s.glass ? "-glass" : "") + ".jpg)";

@@ -809,7 +809,7 @@
       el.innerHTML = '<img class="sbg" alt="">' + (s.video ? '<video class="svid" muted loop playsinline preload="none"></video>' : "") +
         '<div class="shade"></div><div class="gclock"></div>' +
         (s.water ? '<div class="gclock under"></div>' : "") + (s.fg ? '<img class="fg" alt="">' : "") +
-        (s.sunColl ? '<svg class="gclock-svg" aria-hidden="true"><text class="gclock-svg-t" x="50%" text-anchor="middle" font-family="Antonio,sans-serif" font-weight="700"></text></svg>' : "");
+        (s.sunColl ? '<svg class="gclock-svg" aria-hidden="true"></svg>' : "");
       if (s.mine) {   // your own scene: its clock from config.json (app.css, "your own scenes")
         el.className += " x-" + s.x + (s.inter ? " f-inter" : "") + (s.dark ? " t-dark" : "");
         el.style.setProperty("--my-top", s.y * 100 + "vh");
@@ -952,14 +952,28 @@
           f.style.backgroundPosition = "";
           var svgEl = el.querySelector(".gclock-svg");
           if (svgEl) {
-            var svgTxt = svgEl.querySelector(".gclock-svg-t");
             var fs = parseFloat(getComputedStyle(c).fontSize) || 480;
-            svgTxt.setAttribute("font-size", fs);
-            // SVG y = baseline. Antonio ascent ≈ 1.154 × font-size above baseline.
-            // Read the actual CSS top so SVG matches whatever the scene's .gclock top is.
             var topPx = parseFloat(getComputedStyle(c).top) || innerWidth / 120;
-            svgTxt.setAttribute("y", topPx + fs * 1.154);
-            svgTxt.textContent = hm;
+            // SVG y = baseline. Antonio ascent ≈ 1.154 × font-size above baseline.
+            var baseY = topPx + fs * 1.154;
+            var glassUrl = "backgrounds/" + s.photo + (s.glass ? "-glass" : "") + ".jpg";
+            var clipId = "gc-" + s.id;
+            // Rebuild SVG: glass photo clipped through text shape + semi-transparent rim on top
+            svgEl.innerHTML =
+              '<defs>' +
+                '<clipPath id="' + clipId + '">' +
+                  '<text x="50%" text-anchor="middle" font-family="Antonio,sans-serif" font-weight="700"' +
+                  ' font-size="' + fs + '" y="' + baseY + '">' + hm + '</text>' +
+                '</clipPath>' +
+              '</defs>' +
+              // glass fill: photo clipped through the glyph shapes
+              '<image href="' + glassUrl + '" x="0" y="0" width="100%" height="100%"' +
+              ' preserveAspectRatio="xMidYMid slice" clip-path="url(#' + clipId + ')" opacity="0.92"/>' +
+              // rim: faint white stroke so digits read against bright skies
+              '<text class="gclock-svg-t gclock-svg-rim" x="50%" text-anchor="middle"' +
+              ' font-family="Antonio,sans-serif" font-weight="700"' +
+              ' font-size="' + fs + '" y="' + baseY + '" fill="none"' +
+              ' stroke="rgba(255,255,255,0.45)" stroke-width="1.5">' + hm + '</text>';
           }
         } else {
           f.style.backgroundImage = s.src ? cssUrl(s.src) : "url(backgrounds/" + s.photo + (s.glass ? "-glass" : "") + ".jpg)";

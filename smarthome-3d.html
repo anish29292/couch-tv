@@ -1,0 +1,2633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Home — 3D Apartment</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15/dist/nouislider.min.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background: #0d0c14; overflow: hidden;
+      font-family: 'Inter', system-ui, sans-serif; color: #fff; }
+    #canvas-container { position: absolute; inset: 0; }
+    #canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    #hud { position: absolute; inset: 0; pointer-events: none;
+      display: flex; flex-direction: column; justify-content: space-between; }
+
+    #top-bar { display: flex; align-items: center; justify-content: space-between;
+      padding: 24px 48px 0; }
+    #top-bar h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; opacity: 0.85; }
+    #clock { font-size: 20px; font-weight: 200; opacity: 0.6; letter-spacing: 0.04em; }
+    #reset-view-btn {
+      pointer-events: all;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 10px; color: rgba(255,255,255,0.7); padding: 7px 14px;
+      font-size: 12px; font-weight: 500; letter-spacing: 0.06em; cursor: pointer;
+      font-family: inherit; transition: background 0.2s, opacity 0.2s, border-color 0.2s;
+      opacity: 0; transform: translateY(-4px);
+      transition: background 0.2s, border-color 0.2s, opacity 0.3s, transform 0.3s;
+    }
+    #reset-view-btn.visible { opacity: 1; transform: translateY(0); }
+    #reset-view-btn:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.3); color: #fff; }
+
+    #room-label { position: absolute; top: 46%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(10,8,20,0.55); border: 1px solid rgba(255,255,255,0.18);
+      backdrop-filter: blur(24px); border-radius: 40px; padding: 10px 28px;
+      font-size: 17px; font-weight: 500; letter-spacing: 0.07em;
+      opacity: 0; transition: opacity 0.4s; pointer-events: none; }
+    #room-label.visible { opacity: 1; }
+
+    #bottom-panel { display: flex; flex-direction: column; gap: 10px; padding: 0 48px 28px; }
+    #scenes-row { display: flex; gap: 8px; }
+    .scene-btn { pointer-events: all;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; padding: 9px 18px; font-size: 13px; font-weight: 500;
+      color: rgba(255,255,255,0.8); cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, transform 0.12s; outline: none; }
+    .scene-btn:hover, .scene-btn.focus {
+      background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.35); transform: scale(1.04); }
+    .scene-btn.active { background: rgba(255,168,40,0.2); border-color: rgba(255,168,40,0.55); color: #ffbe50; }
+
+    #rooms-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .room-btn { pointer-events: all; display: flex; align-items: center; gap: 7px;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 10px; padding: 8px 16px; font-size: 13px; font-weight: 500;
+      color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.2s; outline: none; font-family: inherit; }
+    .room-btn .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.18); flex-shrink: 0; transition: background 0.3s; }
+    .room-btn.active { background: rgba(79,195,247,0.12); border-color: rgba(79,195,247,0.4); color: #fff; }
+    .room-btn.active .dot { background: #4fc3f7; box-shadow: 0 0 6px rgba(79,195,247,0.6); }
+    .room-btn:hover, .room-btn.focus {
+      background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.28); transform: scale(1.04); }
+    .focus-ring { outline: 2px solid rgba(255,255,255,0.75) !important; outline-offset: 2px !important; }
+    #nav-hint { position: absolute; bottom: 28px; right: 48px; font-size: 11px;
+      opacity: 0.3; line-height: 1.9; text-align: right; }
+    #loading { position: absolute; inset: 0; background: #0d0c14;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; transition: opacity 0.7s; z-index: 100; }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    #loading-text { font-size: 14px; opacity: 0.45; letter-spacing: 0.1em; text-transform: uppercase; }
+    .spinner { width: 32px; height: 32px; border: 1.5px solid rgba(255,255,255,0.08);
+      border-top-color: rgba(255,180,50,0.85); border-radius: 50%; animation: spin 0.85s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Phase 3: Room panel ───────────────────────────── */
+    #room-panel {
+      position: absolute; top: 0; right: 0; width: 300px; height: 100%;
+      background: rgba(5,4,14,0.90);
+      border-left: 1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(40px) saturate(1.8);
+      -webkit-backdrop-filter: blur(40px) saturate(1.8);
+      display: flex; flex-direction: column;
+      padding: 0; gap: 0;
+      pointer-events: none; visibility: hidden;
+      z-index: 30; overflow: hidden;
+      transform: translateX(300px);
+    }
+    #panel-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 22px 20px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      flex-shrink: 0;
+    }
+    #panel-back {
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px; color: #fff; opacity: 0.55; padding: 6px 11px;
+      font-size: 11px; cursor: pointer; letter-spacing: 0.06em; font-family: inherit;
+      transition: opacity 0.2s, background 0.2s; flex-shrink: 0;
+    }
+    #panel-back:hover { opacity: 1; background: rgba(255,255,255,0.10); }
+    #panel-header-right { display: flex; flex-direction: column; flex: 1; gap: 1px; }
+    #room-panel-title {
+      font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; opacity: 0.90;
+    }
+    #panel-room-subtitle { font-size: 10px; opacity: 0.28; letter-spacing: 0.06em; }
+    #panel-room-icon { font-size: 20px; flex-shrink: 0; }
+    /* Room master power pill */
+    .toggle-pill {
+      width: 40px; height: 22px; border-radius: 11px;
+      background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.12);
+      position: relative; cursor: pointer; flex-shrink: 0;
+      transition: background 0.22s, border-color 0.22s; outline: none;
+    }
+    .toggle-pill.on { background: #4fc3f7; border-color: #4fc3f7; }
+    .toggle-pill::after {
+      content:''; position: absolute; top: 3px; left: 3px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+      transition: left 0.2s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .toggle-pill.on::after { left: 21px; }
+
+    /* ── Scrollable device list ── */
+    #room-panel-cards {
+      flex: 1; overflow-y: auto; padding: 8px 0 4px;
+      scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+    }
+    #room-panel-cards::-webkit-scrollbar { width: 3px; }
+    #room-panel-cards::-webkit-scrollbar-track { background: transparent; }
+    #room-panel-cards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 4px; }
+
+    /* ── Device row — compact horizontal ── */
+    .device-card {
+      display: flex; flex-direction: column;
+      padding: 0 20px;
+      border-left: 2px solid transparent;
+      transition: background 0.18s, border-color 0.18s;
+      cursor: pointer;
+      position: relative;
+    }
+    .device-card:hover { background: rgba(255,255,255,0.03); }
+    .device-card.selected {
+      background: rgba(79,195,247,0.05);
+      border-left-color: rgba(79,195,247,0.6);
+    }
+    .device-card.selected .device-card-name { color: #fff; }
+    .device-card-main-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 0 4px;
+    }
+    .device-card-icon {
+      font-size: 15px; opacity: 0.65; width: 20px; text-align: center; flex-shrink: 0;
+    }
+    .device-card.selected .device-card-icon { opacity: 1.0; }
+    .device-card-info { flex: 1; min-width: 0; }
+    .device-card-name {
+      font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.80);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .device-card-status {
+      font-size: 10px; color: rgba(255,255,255,0.28); margin-top: 1px; letter-spacing: 0.04em;
+    }
+    .device-card.selected .device-card-status { color: rgba(79,195,247,0.7); }
+    .device-card-controls {
+      padding: 0 0 12px 32px;
+      display: none;
+    }
+    .device-card.selected .device-card-controls { display: block; }
+    /* Separator line between rows */
+    .device-card + .device-card::before {
+      content: ''; display: block; height: 1px;
+      background: rgba(255,255,255,0.04);
+      margin: 0;
+    }
+    /* noUiSlider skin */
+    .device-card-slider { padding: 6px 0 4px; }
+    .noUi-target {
+      background: rgba(255,255,255,0.08) !important; border: none !important;
+      box-shadow: none !important; border-radius: 4px !important; height: 3px !important;
+    }
+    .noUi-connect { background: rgba(79,195,247,0.7) !important; }
+    .noUi-handle {
+      width: 14px !important; height: 14px !important;
+      right: -7px !important; top: -5.5px !important;
+      background: #fff !important; border: 2px solid #4fc3f7 !important;
+      border-radius: 50% !important; box-shadow: 0 0 6px rgba(79,195,247,0.5) !important;
+      cursor: pointer !important;
+    }
+    .noUi-handle::before, .noUi-handle::after { display: none !important; }
+    .noUi-tooltip { display: none !important; }
+    /* ── Color swatches ── */
+    .color-swatch-row { display:flex; gap:6px; align-items:center; padding:6px 0 2px; flex-wrap:wrap; }
+    .color-swatch {
+      width:20px; height:20px; border-radius:50%; cursor:pointer; flex-shrink:0;
+      border:2px solid transparent; transition:transform .15s, border-color .15s, box-shadow .15s;
+    }
+    .color-swatch:hover { transform:scale(1.22); }
+    .color-swatch.active { border-color:rgba(255,255,255,0.90); box-shadow:0 0 8px rgba(255,255,255,0.38); }
+    .color-custom-btn {
+      width:20px; height:20px; border-radius:50%; cursor:pointer; flex-shrink:0;
+      background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);
+      border:2px solid rgba(255,255,255,0.18); transition:transform .15s, border-color .15s;
+    }
+    .color-custom-btn:hover { transform:scale(1.22); border-color:rgba(255,255,255,0.60); }
+    .iro-wrap { margin-top:6px; display:none; padding:0 0 4px; justify-content:center; }
+    .iro-wrap.open { display:flex; }
+    /* ── Panel room scenes strip ── */
+    #panel-scenes {
+      padding: 12px 20px 16px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      flex-shrink: 0;
+    }
+    #panel-scenes-title { font-size:10px; opacity:0.28; letter-spacing:0.10em; text-transform:uppercase; margin-bottom:8px; }
+    #panel-scenes-row { display:flex; gap:6px; flex-wrap:wrap; }
+    .panel-scene-btn {
+      pointer-events:all; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07);
+      border-radius:8px; padding:6px 11px; font-size:11px; font-weight:500; color:rgba(255,255,255,0.55);
+      cursor:pointer; font-family:inherit; transition:background .2s, border-color .2s, color .2s;
+    }
+    .panel-scene-btn:hover { background:rgba(255,255,255,0.09); border-color:rgba(255,255,255,0.20); color:rgba(255,255,255,0.85); }
+    .panel-scene-btn.active { background:rgba(255,168,40,0.15); border-color:rgba(255,168,40,0.45); color:#ffbe50; }
+
+    /* ── Phase 3: Hotspot bubble ──────────────────────── */
+    #bubble {
+      position: absolute; display: none;
+      background: rgba(7,6,18,0.92);
+      border: 1px solid rgba(255,255,255,0.11);
+      backdrop-filter: blur(28px);
+      -webkit-backdrop-filter: blur(28px);
+      border-radius: 16px; padding: 16px 18px 18px;
+      min-width: 210px; z-index: 50;
+      pointer-events: auto;
+      transform-origin: bottom center;
+    }
+    #bubble-title {
+      font-size: 11px; opacity: 0.4; text-transform: uppercase;
+      letter-spacing: 0.1em; margin-bottom: 12px;
+    }
+    #bubble-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    #bubble-label { font-size: 14px; font-weight: 500; }
+    #bubble-close {
+      position: absolute; top: 10px; right: 12px;
+      background: none; border: none; color: #fff; opacity: 0.25;
+      font-size: 14px; cursor: pointer; padding: 2px 5px; font-family: inherit;
+      transition: opacity 0.15s;
+    }
+    #bubble-close:hover { opacity: 0.7; }
+    #bubble-slider-wrap { height: 4px; margin-top: 4px; }
+    /* ── Hotspot indicator — warm amber target ring matching theme ── */
+    .hs-ring {
+      position: absolute; transform: translate(-50%,-50%);
+      pointer-events: none; z-index: 20;
+      width: 32px; height: 32px;
+    }
+    .hs-ring::before {
+      content: ''; position: absolute; inset: 0;
+      border-radius: 50%;
+      border: 1.5px solid rgba(255,190,80,0.70);
+      box-shadow: 0 0 8px rgba(255,160,40,0.35), inset 0 0 4px rgba(255,160,40,0.10);
+    }
+    .hs-ring::after {
+      content: ''; position: absolute;
+      left: 50%; top: 50%;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: rgba(255,200,80,0.90);
+      box-shadow: 0 0 7px rgba(255,160,40,0.85);
+      transform: translate(-50%,-50%);
+    }
+    .hs-ring.selected::before {
+      border-color: rgba(255,220,120,0.95);
+      box-shadow: 0 0 14px rgba(255,180,50,0.60), 0 0 24px rgba(255,140,30,0.30);
+      animation: hsSelect 0.35s ease-out forwards;
+    }
+    @keyframes hsSelect {
+      0%   { transform: scale(1.8); opacity: 0; }
+      100% { transform: scale(1);   opacity: 1; }
+    }
+    /* ── Color swatches ── */
+    .color-swatch-row { display:flex; gap:6px; align-items:center; padding:6px 0 2px; flex-wrap:wrap; }
+    .color-swatch {
+      width:20px; height:20px; border-radius:50%; cursor:pointer; flex-shrink:0;
+      border:2px solid transparent; transition:transform .15s, border-color .15s, box-shadow .15s;
+    }
+    .color-swatch:hover { transform:scale(1.22); }
+    .color-swatch.active { border-color:rgba(255,255,255,0.90); box-shadow:0 0 8px rgba(255,255,255,0.38); }
+    .color-custom-btn {
+      width:20px; height:20px; border-radius:50%; cursor:pointer; flex-shrink:0;
+      background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red);
+      border:2px solid rgba(255,255,255,0.18); transition:transform .15s, border-color .15s;
+    }
+    .color-custom-btn:hover { transform:scale(1.22); border-color:rgba(255,255,255,0.60); }
+    .iro-wrap { margin-top:6px; display:none; padding:0 0 4px; justify-content:center; }
+    .iro-wrap.open { display:flex; }
+  </style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><div id="loading-text">Loading…</div></div>
+<div id="canvas-container"></div>
+<div id="hud">
+  <div id="top-bar"><h1>Smart Home</h1><button id="reset-view-btn">⟳ Reset View</button><div id="clock"></div></div>
+  <div id="room-label"></div>
+  <div id="bottom-panel">
+    <div id="rooms-row">
+      <button class="room-btn" data-room="living">  <span class="dot"></span>Living</button>
+      <button class="room-btn" data-room="bedroom"> <span class="dot"></span>Bedroom</button>
+      <button class="room-btn" data-room="kitchen"> <span class="dot"></span>Kitchen</button>
+      <button class="room-btn" data-room="hall">    <span class="dot"></span>Hallway</button>
+      <button class="room-btn" data-room="loggia">  <span class="dot"></span>Balcony</button>
+      <button class="room-btn" data-room="bathroom"><span class="dot"></span>Bathroom</button>
+    </div>
+    <div id="scenes-row">
+      <button class="scene-btn" data-scene="movie">🎬 Movie Night</button>
+      <button class="scene-btn" data-scene="relax">🌿 Relax</button>
+      <button class="scene-btn" data-scene="dinner">🍷 Dinner</button>
+      <button class="scene-btn" data-scene="party">🎉 Party</button>
+      <button class="scene-btn" data-scene="goodnight">🌙 Goodnight</button>
+    </div>
+  </div>
+</div>
+<div id="nav-hint">D-pad: navigate &amp; select<br>OK: toggle / zoom<br>Back: overview</div>
+
+<!-- Phase 3: Room panel -->
+<div id="room-panel">
+  <div id="panel-header">
+    <button id="panel-back">← Back</button>
+    <span id="panel-room-icon"></span>
+    <div id="panel-header-right">
+      <span id="room-panel-title"></span>
+      <span id="panel-room-subtitle"></span>
+    </div>
+    <button class="toggle-pill" id="room-power-toggle" title="All lights in room"></button>
+  </div>
+  <div id="room-panel-cards"></div>
+</div>
+
+<!-- Phase 3: Hotspot bubble -->
+<div id="bubble">
+  <button id="bubble-close">✕</button>
+  <div id="bubble-title"></div>
+  <div id="bubble-row">
+    <span id="bubble-label"></span>
+    <button class="toggle-pill" id="bubble-toggle"></button>
+  </div>
+  <div id="bubble-slider-wrap"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/nouislider@15/dist/nouislider.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5/dist/iro.min.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
+import { RectAreaLightHelper } from 'three/addons/helpers/RectAreaLightHelper.js';
+
+RectAreaLightUniformsLib.init();
+
+// ─────────────────────────────────────────────
+// LAYOUT CONSTANTS
+// X = West→East (0=west wall, 10=east wall)
+// Z = North→South (0=north, 8.8=south/loggia threshold)
+// ─────────────────────────────────────────────
+const W_H = 2.5, W_T = 0.15, F_T = 0.08;
+const R = {
+  bad:      { x:0,   z:0,   w:3.0, d:2.8 },
+  diele:    { x:3.0, z:0,   w:2.2, d:2.8 },
+  kueche:   { x:5.2, z:0,   w:4.8, d:2.8 },
+  schlafen: { x:0,   z:2.8, w:4.2, d:6.0 },
+  wohnen:   { x:4.2, z:2.8, w:5.8, d:6.0 },
+  loggia:   { x:0,   z:8.8, w:10,  d:2.0 },
+};
+const APT_W = 10.0, APT_D = 8.8, PX = 4.2; // PX = partition X
+
+// ─────────────────────────────────────────────
+// PROCEDURAL TEXTURES
+// ─────────────────────────────────────────────
+function makeWoodFloorTexture(w=512, h=512) {
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+  const baseColor = '#c07838';
+  ctx.fillStyle = baseColor; ctx.fillRect(0,0,w,h);
+  const nPlanks = 6;
+  const plankH = h / nPlanks;
+  const plankColors = ['#b87030','#c88040','#b06828','#d09050','#a86020','#c07838'];
+  for (let p=0; p<nPlanks; p++) {
+    const y0 = p * plankH;
+    ctx.fillStyle = plankColors[p % plankColors.length];
+    ctx.fillRect(0, y0, w, plankH - 1.5);
+    // grain lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 0.8;
+    for (let g=0; g<12; g++) {
+      const gx = (g/12)*w + (Math.random()-0.5)*20;
+      ctx.beginPath(); ctx.moveTo(gx, y0); ctx.lineTo(gx + (Math.random()-0.5)*30, y0+plankH); ctx.stroke();
+    }
+    // plank gap
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, y0+plankH-2, w, 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3,3);
+  return t;
+}
+
+function makeWallTexture() {
+  const c = document.createElement('canvas'); c.width=256; c.height=256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#f4ede2'; ctx.fillRect(0,0,256,256);
+  // subtle noise
+  for (let i=0; i<800; i++) {
+    const x=Math.random()*256, y=Math.random()*256, r=Math.random()*2;
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.025})`;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2,1);
+  return t;
+}
+
+function makeRoughTexture(base='#1a1a1a') {
+  const c = document.createElement('canvas'); c.width=128; c.height=128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = base; ctx.fillRect(0,0,128,128);
+  for (let i=0; i<400; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${Math.random()*0.04})`;
+    ctx.fillRect(Math.random()*128, Math.random()*128, 2, 2);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+const floorTex   = makeWoodFloorTexture();
+const wallTex    = makeWallTexture();
+const darkTex    = makeRoughTexture('#181818');
+const concreteTex = makeRoughTexture('#c0bbb5');
+
+// ─────────────────────────────────────────────
+// PBR MATERIALS
+// ─────────────────────────────────────────────
+function std(color, rough=0.75, metal=0, map=null, extra={}) {
+  return new THREE.MeshStandardMaterial({ color, roughness:rough, metalness:metal, map, ...extra });
+}
+function emit(color, intensity=1.2) {
+  return new THREE.MeshStandardMaterial({ color, emissive:color, emissiveIntensity:intensity, roughness:0.9 });
+}
+
+const M = {
+  wall:        std(0xf4ede2, 0.85, 0,   wallTex),
+  wallDark:    std(0x141414, 0.9,  0,   darkTex),
+  floor:       std(0xc07838, 0.55, 0,   floorTex),
+  floorBath:   std(0xccc8c0, 0.35, 0.05, concreteTex),
+  floorLoggia: std(0x7a5028, 0.7,  0),
+  sofaBody:    std(0x4a4a52, 0.85, 0),   // dark charcoal like real sofa
+  sofaBack:    std(0x3a3a42, 0.88, 0),
+  pillow:      std(0x6a6a72, 0.8,  0),
+  pillowAccent:std(0x8a7060, 0.8,  0),
+  wood:        std(0x6b4c2a, 0.65, 0),
+  woodLight:   std(0xb8854a, 0.6,  0),
+  woodDark:    std(0x2e1c0e, 0.7,  0),
+  darkMetal:   std(0x1a1a1a, 0.4,  0.85),
+  brightMetal: std(0xd0d8dc, 0.2,  0.9),
+  tvScreen:    new THREE.MeshStandardMaterial({ color:0x050608, roughness:0.05, metalness:0.1,
+                 emissive:0x1122aa, emissiveIntensity:0.08,
+                 polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1 }),
+  tvScreenOn:  new THREE.MeshStandardMaterial({ color:0x080c18, roughness:0.05, metalness:0.1,
+                 emissive:0x203060, emissiveIntensity:0.4,
+                 polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1 }),
+  plant:       std(0x3a6828, 0.9,  0),
+  plantDark:   std(0x284820, 0.95, 0),
+  plantPot:    std(0x7a6050, 0.75, 0.05),
+  bed:         std(0xd8c4a4, 0.85, 0),
+  bedDark:     std(0xa8845a, 0.85, 0),
+  bedFrame:    std(0x221408, 0.65, 0.1),
+  wardrobe:    std(0xf0ebe0, 0.7,  0.02),
+  wardrobeFront: std(0xe0d8c8, 0.65, 0.05),
+  desk:        std(0x8a6840, 0.65, 0.05),
+  chairDark:   std(0x1c1c24, 0.7,  0.15),
+  tableTop:    std(0x221408, 0.45, 0.15),
+  kitchenCab:  std(0xf0ebe0, 0.6,  0.03),
+  kitchenTop:  std(0x707880, 0.2,  0.6),   // grey stone worktop
+  kitchenFront:std(0xe8e0d0, 0.55, 0.05),
+  bathTile:    std(0xe8e4de, 0.25, 0.05),
+  glass:       new THREE.MeshStandardMaterial({ color:0xb8d8ee, roughness:0.05, metalness:0.1,
+                 transparent:true, opacity:0.28, side:THREE.DoubleSide }),
+  rug:         std(0x3a3440, 0.95, 0),   // dark grey like real rug
+  barMetal:    std(0x0e0e10, 0.3,  0.95),
+  barShelf:    std(0x221408, 0.65, 0.05),
+  bottle:      new THREE.MeshStandardMaterial({ color:0x1a3820, roughness:0.15, metalness:0.05,
+                 transparent:true, opacity:0.88 }),
+  bottleAmber: new THREE.MeshStandardMaterial({ color:0x8a4010, roughness:0.15, metalness:0.05,
+                 transparent:true, opacity:0.85 }),
+  loungeFab:   std(0xc8a870, 0.88, 0),
+  chairSeat:   std(0xb89858, 0.8,  0),
+  glassFrame:  std(0xd8e0e4, 0.15, 0.9),
+};
+
+const EMIT = {
+  warmGlow:  emit(0xffaa30, 1.1),
+  warmDim:   emit(0xff8820, 0.6),
+  pinkGlow:  emit(0xff2090, 0.85),
+  purpleGlow:emit(0x8820ff, 0.7),
+  tvGlow:    emit(0x1a3880, 0.5),
+  barGlow:   emit(0xff8818, 1.2),
+  ceilingLed:emit(0xfff0d0, 0.9),
+};
+
+// ─────────────────────────────────────────────
+// LIGHT STATE
+// ─────────────────────────────────────────────
+const lightState = {
+  'tv-backlight':  { on:false, brightness:0.7,  color:[180,60,255]  },
+  'bar-light':     { on:false, brightness:0.9,  color:[255,145,35]  },
+  'pendant-1':     { on:false, brightness:0.85, color:[255,210,130] },
+  'pendant-2':     { on:false, brightness:0.85, color:[255,210,130] },
+  'couch-light':   { on:false, brightness:0.7,  color:[255,140,20]  },
+  'arc-lamp':      { on:false, brightness:0.85, color:[255,200,130] },
+  'govee-floor-1': { on:false, brightness:0.8,  color:[34,85,255]   },
+  'bedroom-main':  { on:false, brightness:0.6,  color:[255,200,150] },
+  'kitchen-light': { on:false, brightness:1.0,  color:[255,240,200] },
+  'washer':        { on:false, brightness:1.0,  color:[100,200,255] },
+  'loggia-light':  { on:false, brightness:0.5,  color:[255,155,55]  },
+  'govee-hall':    { on:false, brightness:0.7,  color:[255,100,30]  },
+};
+const SCENES = {
+  movie:     { 'tv-backlight':[true,1.0], 'bar-light':[true,0.25],'pendant-1':[false,0],'pendant-2':[false,0],'couch-light':[true,0.6],'arc-lamp':[false,0],'govee-floor-1':[true,0.5],'bedroom-main':[false,0],'kitchen-light':[false,0],'washer':[false,0],'loggia-light':[false,0],'govee-hall':[false,0] },
+  relax:     { 'tv-backlight':[true,0.4], 'bar-light':[true,0.65],'pendant-1':[true,0.5],'pendant-2':[true,0.5],'couch-light':[true,0.5],'arc-lamp':[true,0.6],'govee-floor-1':[true,0.6],'bedroom-main':[false,0],'kitchen-light':[false,0],'washer':[false,0],'loggia-light':[true,0.45],'govee-hall':[true,0.5] },
+  dinner:    { 'tv-backlight':[false,0],  'bar-light':[true,0.75],'pendant-1':[true,1.0],'pendant-2':[true,1.0],'couch-light':[false,0],'arc-lamp':[true,0.5],'govee-floor-1':[false,0],'bedroom-main':[false,0],'kitchen-light':[true,0.9],'washer':[false,0],'loggia-light':[false,0],'govee-hall':[false,0] },
+  party:     { 'tv-backlight':[true,1.0], 'bar-light':[true,1.0], 'pendant-1':[true,0.8],'pendant-2':[true,0.8],'couch-light':[true,1.0],'arc-lamp':[true,1.0],'govee-floor-1':[true,1.0],'bedroom-main':[false,0],'kitchen-light':[false,0],'washer':[false,0],'loggia-light':[true,0.8],'govee-hall':[true,0.8] },
+  goodnight: { 'tv-backlight':[false,0],  'bar-light':[false,0],  'pendant-1':[false,0],'pendant-2':[false,0],'couch-light':[false,0],'arc-lamp':[false,0],'govee-floor-1':[false,0],'bedroom-main':[true,0.12],'kitchen-light':[false,0],'washer':[false,0],'loggia-light':[false,0],'govee-hall':[false,0] },
+};
+
+// ─────────────────────────────────────────────
+// RENDERER + SCENE
+// ─────────────────────────────────────────────
+const scene3 = new THREE.Scene();
+const container = document.getElementById('canvas-container');
+let W = container.clientWidth || window.innerWidth;
+let H = container.clientHeight || window.innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference:'high-performance' });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+container.appendChild(renderer.domElement);
+
+scene3.background = new THREE.Color(0x0d0c14);
+scene3.fog = new THREE.FogExp2(0x0d0c14, 0.011);
+
+// ─────────────────────────────────────────────
+// CAMERA
+// ─────────────────────────────────────────────
+const aspect = W/H, CAM_SIZE = 7.6;
+const camera = new THREE.OrthographicCamera(-CAM_SIZE*aspect, CAM_SIZE*aspect, CAM_SIZE, -CAM_SIZE, 0.1, 300);
+camera.position.set(-18, 24, 24);
+camera.lookAt(5, 0, 5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.07;
+controls.target.set(5, 0, 5);
+controls.minZoom = 0.35; controls.maxZoom = 5;
+controls.maxPolarAngle = Math.PI / 2.05;
+controls.update();
+const DEFAULT_CAM = { x:-18, y:24, z:24, tx:5, tz:5 };
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+function box(w, h, d, mat) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.castShadow = true; m.receiveShadow = true; return m;
+}
+function cyl(rt, rb, h, seg, mat) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
+  m.castShadow = true; return m;
+}
+function sph(r, seg, mat) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.ceil(seg*0.6)), mat);
+  m.castShadow = false; return m;
+}
+function sadd(mesh, x, y, z) { mesh.position.set(x,y,z); scene3.add(mesh); return mesh; }
+function gadd(grp, mesh, x, y, z) { mesh.position.set(x,y,z); grp.add(mesh); return mesh; }
+
+// ─────────────────────────────────────────────
+// GLOBAL LIGHTING
+// ─────────────────────────────────────────────
+// Soft ambient base — warm interior evening
+const ambLight = new THREE.AmbientLight(0xf0c888, 1.8);
+scene3.add(ambLight);
+
+// Camera-direction key light — illuminates all camera-facing surfaces
+const keyLight = new THREE.DirectionalLight(0xfff5e0, 2.6);
+keyLight.position.set(-18, 26, 26);
+keyLight.target.position.set(5, 0, 5);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 1;
+keyLight.shadow.camera.far = 80;
+keyLight.shadow.camera.left = -16;
+keyLight.shadow.camera.right = 16;
+keyLight.shadow.camera.top = 16;
+keyLight.shadow.camera.bottom = -16;
+keyLight.shadow.bias = -0.0008;
+keyLight.shadow.radius = 3;
+scene3.add(keyLight); scene3.add(keyLight.target);
+
+// NE fill — illuminates north-facing surfaces
+const fillNE = new THREE.DirectionalLight(0xffe0a8, 1.6);
+fillNE.position.set(18, 18, -6); scene3.add(fillNE);
+
+// Top overhead
+const topLight = new THREE.DirectionalLight(0xfff8f0, 1.4);
+topLight.position.set(0, 50, 0); scene3.add(topLight);
+
+// West-only fill for bedroom (x<4.2 zone)
+const westFill = new THREE.DirectionalLight(0xffcc80, 1.4);
+westFill.position.set(-28, 12, 8); scene3.add(westFill);
+
+// Per-room point lights (always on)
+const fills = [
+  // Bedroom — multiple inside x<4.2
+  [1.8, 2.8, 5.8,  0xf0a850, 7, 11],
+  [0.8, 2.5, 5.2,  0xe09040, 5, 8 ],
+  [2.8, 2.5, 7.0,  0xf0a840, 5, 8 ],
+  [1.2, 2.0, 3.8,  0xf0a030, 4, 7 ],
+  [3.6, 2.2, 6.2,  0xffc060, 5, 8 ],
+  [1.5, 1.2, 6.8,  0xffb040, 4, 6 ],
+  // Diele
+  [4.1, 2.2, 1.6,  0xffc860, 2, 5 ],
+  // Living
+  [7.0, 3.0, 6.0,  0xffb840, 4, 12],
+  [6.0, 2.5, 4.5,  0xffa030, 3, 8 ],
+  [8.5, 2.5, 7.0,  0xffb030, 3, 8 ],
+  [7.2, 1.5, 7.5,  0xffb840, 3, 7 ],
+  [9.0, 2.0, 5.5,  0xffc050, 3, 7 ],  // east wall living fill
+  // Bath
+  [1.4, 2.0, 1.4,  0xd0c8b0, 1.2, 5],
+  // Kitchen
+  [7.8, 2.2, 1.4,  0xfff0c8, 2.2, 7],
+  // Loggia
+  [3.0, 1.2, 9.5,  0xff9830, 2.5, 8],
+  [7.0, 1.2, 9.5,  0xff9830, 2.5, 8],
+];
+for (const [x,y,z,col,i,d] of fills) {
+  const l = new THREE.PointLight(col, i, d); l.position.set(x,y,z); scene3.add(l);
+}
+
+// Controllable lights
+const pointLights = {};
+const tvRectLights = [];   // filled after TV section; drives 'tv-backlight' zone
+const couchLedMeshes = []; // filled after sofa section; drives 'couch-light' emissive
+let washerLedMat = null;   // filled after kitchen section; drives 'washer' status LED
+let pendant1BulbMat = null, pendant2BulbMat = null; // cage pendant bulbs
+const cloudMeshes = [];    // bedroom cloud lamp meshes (all glow with colour)
+let arcShadeMat = null;    // arc lamp drum shade — glows with selected colour
+let arcGlowMat = null;     // arc lamp inner glow disc
+const goveeLampMats = {};  // id → { strip, baseGlow, pl } for Govee floor lamps
+function makePL(id, x, y, z, col, intensity, dist) {
+  const pl = new THREE.PointLight(col, intensity, dist);
+  pl.position.set(x,y,z); scene3.add(pl); pointLights[id] = pl;
+}
+// tv-backlight is driven by RectAreaLights created later (near TV section)
+// Register a dummy so applyLightState doesn't throw; the real lights are rlTop/rlBot/rlNorth/rlSouth
+makePL('tv-backlight', PX+0.35, 0.80, 6.5, 0x2255ff, 0.001, 0.01);
+makePL('bar-light',    PX+0.12, 1.8, 4.3, 0xff9020, 3.5, 5);   // partition wall bar — short range stays in living area
+makePL('pendant-1',    8.8, 2.22,4.2,  0xffcc80, 1.8, 5.0);    // cage pendant east
+makePL('pendant-2',    5.6, 2.22,4.2,  0xffcc80, 1.8, 5.0);    // cage pendant west
+makePL('arc-lamp',     0,   0,   0,    0xffcc80, 2.0, 4.5); // position set after arc lamp geometry
+makePL('bedroom-main', 1.8, 2.8, 5.5,  0xffd890, 0.0, 6);      // cloud: bedroom-only radius
+makePL('kitchen-light',7.8, 2.4, 1.4,  0xfff0cc, 0.0, 5);      // kitchen: short range
+makePL('loggia-light', 5.0, 1.5, 9.8,  0xff9830, 0.0, 6);      // loggia
+
+function applyLightState() {
+  // Quadratic glow: pale at low brightness, deep+bright at high brightness.
+  // g(0)=0, g(0.3)≈0.09, g(0.7)≈0.49, g(1.0)=1.0
+  function glow(bri) { return bri * bri; }
+
+  // ── Point lights ──────────────────────────────────────────
+  for (const [id,st] of Object.entries(lightState)) {
+    const pl = pointLights[id];
+    if (!pl) continue;
+    // Higher base intensity since global ambient is now fixed-low; local PL is the primary illuminator.
+    pl.intensity = st.on ? glow(st.brightness) * 14.0 : 0;
+    if (st.on && st.color) {
+      const [r,g,b] = st.color;
+      pl.color.setRGB(r/255, g/255, b/255);
+    } else if (!st.on) {
+      pl.color.setHex(0xffd890); // reset to neutral warm when off
+    }
+  }
+  // ── TV backlight: emissive glow meshes + halo PL ──────────
+  if (tvRectLights.length > 0) {
+    const tvSt = lightState['tv-backlight'];
+    const on = tvSt.on, g2 = glow(tvSt.brightness);
+    const [r,g,b] = tvSt.color || [180,60,255];
+    tvRectLights.forEach((item) => {
+      if (item.isMesh) {
+        item.material.emissiveIntensity = on ? g2 * 5.0 : 0;
+        if (on) item.material.emissive.setRGB(r/255, g/255, b/255);
+      } else {
+        item.intensity = on ? g2 * 18.0 : 0;
+        if (on) item.color.setRGB(r/255, g/255, b/255);
+      }
+    });
+  }
+  // ── Couch LED strip — emissive meshes + secondary PL ──────
+  if (couchLedMeshes.length > 0) {
+    const cSt = lightState['couch-light'];
+    const [r,g,b] = cSt.color || [255,140,20];
+    const g2 = glow(cSt.brightness);
+    couchLedMeshes.forEach(item => {
+      if (item.isMesh) {
+        item.material.emissiveIntensity = cSt.on ? g2 * 4.0 : 0;
+        if (cSt.on) item.material.emissive.setRGB(r/255, g/255, b/255);
+      } else {
+        item.intensity = cSt.on ? g2 * 4.5 : 0;
+        if (cSt.on) item.color.setRGB(r/255, g/255, b/255);
+      }
+    });
+  }
+  // ── Washer status LED ──────────────────────────────────────
+  if (washerLedMat !== null) {
+    const wSt = lightState['washer'];
+    if (wSt.on) {
+      washerLedMat.color.setHex(0x22cc44); washerLedMat.emissive.setHex(0x00cc22); washerLedMat.emissiveIntensity = 1.5;
+    } else {
+      washerLedMat.color.setHex(0xcc2222); washerLedMat.emissive.setHex(0xcc0000); washerLedMat.emissiveIntensity = 1.2;
+    }
+  }
+  // ── Arc lamp drum shade — glows with selected colour ──────
+  if (arcShadeMat && arcGlowMat) {
+    const aSt = lightState['arc-lamp'];
+    const [r,g,b] = aSt.color || [255,200,130];
+    const nr = r/255, ng = g/255, nb = b/255;
+    const ag = aSt.on ? glow(aSt.brightness) : 0;
+    const sideGlowMat = shadeTip?._sideGlowMat;
+    if (aSt.on) {
+      arcShadeMat.emissive.setRGB(nr, ng, nb);
+      arcShadeMat.emissiveIntensity = ag * 3.5;
+      arcShadeMat.color.setRGB(0.82 + nr * 0.15, 0.76 + ng * 0.15, 0.70 + nb * 0.15);
+      arcGlowMat.emissive.setRGB(nr, ng, nb);
+      arcGlowMat.emissiveIntensity = ag * 8.0;
+      arcGlowMat.color.setRGB(nr, ng, nb);
+      if (sideGlowMat) {
+        sideGlowMat.emissive.setRGB(nr, ng, nb);
+        sideGlowMat.color.setRGB(nr, ng, nb);
+        sideGlowMat.emissiveIntensity = ag * 5.0;
+      }
+    } else {
+      arcShadeMat.emissive.setRGB(0, 0, 0);
+      arcShadeMat.emissiveIntensity = 0;
+      arcShadeMat.color.setRGB(0.96, 0.93, 0.88);
+      arcGlowMat.emissive.setRGB(0, 0, 0);
+      arcGlowMat.emissiveIntensity = 0;
+      arcGlowMat.color.setRGB(0.4, 0.38, 0.35);
+      if (sideGlowMat) {
+        sideGlowMat.emissive.setRGB(0, 0, 0);
+        sideGlowMat.emissiveIntensity = 0;
+        sideGlowMat.color.setRGB(0.4, 0.38, 0.35);
+      }
+    }
+    arcShadeMat.needsUpdate = true;
+    arcGlowMat.needsUpdate = true;
+    if (sideGlowMat) sideGlowMat.needsUpdate = true;
+  }
+  // ── Cage pendant bulbs — MeshBasicMaterial, HDR boost for saturation ─
+  for (const [mat, id] of [[pendant1BulbMat,'pendant-1'],[pendant2BulbMat,'pendant-2']]) {
+    if (!mat) continue;
+    const st = lightState[id];
+    const [r,g,b] = st.color || [255,228,181];
+    const nr = r/255, ng = g/255, nb = b/255;
+    if (st.on) {
+      const pg = glow(st.brightness);
+      // Boost above 1.0 so ACES preserves hue saturation (HDR → rich tone-mapped color).
+      const boost = 0.4 + pg * 3.0;
+      mat.color.setRGB(nr * boost, ng * boost, nb * boost);
+    } else {
+      mat.color.setRGB(0.32, 0.30, 0.28);
+    }
+    mat.needsUpdate = true;
+  }
+  // ── Cloud light — whole cloud glows with selected colour ───
+  if (cloudMeshes.length > 0) {
+    const cSt = lightState['bedroom-main'];
+    const [r,g,b] = cSt.color || [255,200,150];
+    const nr = r/255, ng = g/255, nb = b/255;
+    const cg = cSt.on ? glow(cSt.brightness) : 0;
+    cloudMeshes.forEach(item => {
+      if (item.isBulb) {
+        if (cSt.on) {
+          item.material.color.setRGB(nr, ng, nb);
+          item.material.emissive.setRGB(nr, ng, nb);
+          item.material.emissiveIntensity = cg * 6.0;
+        } else {
+          item.material.emissive.setRGB(0, 0, 0);
+          item.material.emissiveIntensity = 0;
+          item.material.color.setRGB(0.32, 0.30, 0.28);
+        }
+      } else {
+        if (cSt.on) {
+          // MeshBasicMaterial: values clamp to [0,1]. Use raw normalized color.
+          // Fully opaque, no transparency — avoids blending with warm background.
+          const dim = cg;
+          item.material.color.setRGB(nr * dim, ng * dim, nb * dim);
+        } else {
+          item.material.color.setRGB(0.88, 0.86, 0.84);
+        }
+      }
+      item.material.needsUpdate = true;
+    });
+  }
+  // ── Govee floor lamps — emissive strip + base glow ────────────
+  for (const [id, mats] of Object.entries(goveeLampMats)) {
+    const st = lightState[id];
+    if (!st) continue;
+    const [r,g,b] = st.color || [34,85,255];
+    const nr = r/255, ng = g/255, nb = b/255;
+    const col = new THREE.Color(nr, ng, nb);
+    if (st.on) {
+      const ag = glow(st.brightness);
+      mats.strip.color.copy(col);
+      mats.strip.emissive.copy(col);
+      mats.strip.emissiveIntensity = 0.8 + ag * 2.5;
+      mats.strip.opacity = 0.85 + ag * 0.12;
+      mats.baseGlow.emissive.copy(col);
+      mats.baseGlow.emissiveIntensity = 0.5 + ag * 2.0;
+      mats.pl.color.copy(col);
+      mats.pl.intensity = ag * 4.5;
+    } else {
+      mats.strip.color.setRGB(0.06, 0.06, 0.06);
+      mats.strip.emissive.setRGB(0, 0, 0);
+      mats.strip.emissiveIntensity = 0;
+      mats.strip.opacity = 0.3;
+      mats.baseGlow.emissive.setRGB(0, 0, 0);
+      mats.baseGlow.emissiveIntensity = 0;
+      mats.pl.intensity = 0;
+    }
+    mats.strip.needsUpdate = true;
+    mats.baseGlow.needsUpdate = true;
+  }
+  // ── Global scene ambient — fixed night-mode base; local PointLights provide room light ──
+  // Ambient stays low and fixed so each smart light illuminates only its vicinity.
+  // The always-on fill PointLights (fills[]) provide per-room base warmth independently.
+  ambLight.intensity = 0.12;
+  ambLight.color.setRGB(0.94, 0.82, 0.60);
+  keyLight.intensity = 0.08;
+  fillNE.intensity   = 0.06;
+  topLight.intensity = 0.05;
+}
+applyLightState();
+
+// ─────────────────────────────────────────────
+// FLOORS
+// ─────────────────────────────────────────────
+function floor(x, z, w, d, mat, y=0) {
+  const f = box(w, F_T, d, mat);
+  f.position.set(x+w/2, y-F_T/2, z+d/2);
+  scene3.add(f);
+}
+floor(R.bad.x,      R.bad.z,      R.bad.w,      R.bad.d,      M.floorBath);
+floor(R.diele.x,    R.diele.z,    R.diele.w,    R.diele.d,    M.floor);
+floor(R.kueche.x,   R.kueche.z,   R.kueche.w,   R.kueche.d,   M.floor);
+floor(R.schlafen.x, R.schlafen.z, R.schlafen.w, R.schlafen.d, M.floor);
+floor(R.wohnen.x,   R.wohnen.z,   R.wohnen.w,   R.wohnen.d,   M.floor);
+floor(R.loggia.x,   R.loggia.z,   R.loggia.w,   R.loggia.d,   M.floorLoggia, -0.15);
+
+// ─────────────────────────────────────────────
+// WALLS
+// ─────────────────────────────────────────────
+function wallX(x0, x1, z, y0=0, h=W_H, mat=M.wall) {
+  const len=x1-x0, w=box(len, h, W_T, mat);
+  w.position.set(x0+len/2, y0+h/2, z); scene3.add(w);
+}
+function wallZ(z0, z1, x, y0=0, h=W_H, mat=M.wall) {
+  const len=z1-z0, w=box(W_T, h, len, mat);
+  w.position.set(x, y0+h/2, z0+len/2); scene3.add(w);
+}
+function wallXext(x0, x1, z, h=W_H) {
+  const len=x1-x0, w=box(len+W_T*2, h, W_T*2.8, M.wallDark);
+  w.position.set(x0+len/2, h/2, z); scene3.add(w);
+}
+function wallZext(z0, z1, x, h=W_H) {
+  const len=z1-z0, w=box(W_T*2.8, h, len+W_T*2, M.wallDark);
+  w.position.set(x, h/2, z0+len/2); scene3.add(w);
+}
+
+// Exterior
+wallXext(0, APT_W, -W_T*1.4);                                 // north back
+wallZext(-W_T*1.4, APT_D+W_T*1.4, APT_W+W_T*1.4);           // east side
+
+// Interior north faces
+wallX(0, R.bad.w, W_T/2);
+// Diele north wall — front door gap x=3.0–4.0 (NW corner of hallway)
+// wallX(R.diele.x, 4.0, W_T/2); — removed: door gap here
+wallX(4.0, R.diele.x+R.diele.w, W_T/2);  // east stub after door gap
+wallX(R.kueche.x, APT_W, W_T/2);
+
+// Bad/Diele — door gap z≈1.05–1.95
+wallZ(W_T/2, 1.05, R.bad.w);
+wallZ(1.95, R.bad.d+W_T/2, R.bad.w);
+
+// Diele/Küche — wall between hallway east wall and kitchen (closed per user request)
+wallZ(W_T/2, R.diele.d + W_T/2, R.diele.x + R.diele.w);
+
+// Bad south
+wallX(0, R.bad.w, R.bad.z+R.bad.d);
+
+// Diele south — door x=3.0–4.2 (1.2m wide, flush with partition)
+wallX(R.diele.x, 3.0, R.diele.z+R.diele.d);
+
+// Kitchen fully open to living — no south wall
+
+// Partition bedroom/living — solid full wall
+wallZ(R.schlafen.z, R.schlafen.z+R.schlafen.d, PX);
+
+// South wall sections
+// Real layout from photos: two glazed double-door openings in the south wall
+//   Bedroom opening: x=0.35–2.55 (2.2m)
+//   Living opening:  x=5.1–8.8 (3.7m)
+//   Solid pier between them: x=2.55–5.1
+//   SW stub: x=0–0.35   SE stub: x=8.8–10
+wallX(0, 0.10, APT_D);           // SW bedroom corner stub (narrowed)
+wallX(2.90, 5.1, APT_D);         // solid pier between the two openings (shifted east)
+wallX(8.8, APT_W, APT_D);        // SE stub beside living opening
+
+// Loggia railings
+const loggiaS = box(APT_W+0.3, 0.92, W_T*2.5, M.wallDark);
+loggiaS.position.set(APT_W/2, -0.15+0.46, R.loggia.z+R.loggia.d); scene3.add(loggiaS);
+sadd(box(W_T*2.5, 0.92, R.loggia.d+0.1, M.wallDark), -W_T*0.5, -0.15+0.46, R.loggia.z+R.loggia.d/2);
+sadd(box(W_T*2.5, 0.92, R.loggia.d+0.1, M.wallDark), APT_W+W_T*0.5, -0.15+0.46, R.loggia.z+R.loggia.d/2);
+
+// ─────────────────────────────────────────────
+// LOGGIA GLASS DOORS — large, framed, DoubleSide
+// ─────────────────────────────────────────────
+const glassMat = new THREE.MeshStandardMaterial({
+  color:0xc0ddf0, roughness:0.05, metalness:0.15,
+  transparent:true, opacity:0.30, side:THREE.DoubleSide,
+  polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1
+});
+const frameMat = M.glassFrame;
+
+// Bedroom doors: 2 panels filling x=0.10–2.90 (each 1.4m wide — proportionate to living room)
+// Centre each panel: 0.10+0.70=0.80 and 0.10+2.10=2.20
+for (let i=0; i<2; i++) {
+  const px = 0.10 + 0.70 + i*1.40;  // 0.80, 2.20
+  sadd(box(1.38, 2.30, 0.05, glassMat), px, 1.15, APT_D);
+  sadd(box(0.05, 2.30, 0.07, frameMat), px-0.69, 1.15, APT_D);
+  sadd(box(0.05, 2.30, 0.07, frameMat), px+0.69, 1.15, APT_D);
+  sadd(box(1.44, 0.06, 0.07, frameMat), px, 2.32, APT_D);
+  sadd(box(1.44, 0.06, 0.07, frameMat), px, 0.03, APT_D);
+  // Horizontal mid-rail
+  sadd(box(1.38, 0.04, 0.06, frameMat), px, 1.22, APT_D);
+}
+// Outer frame across full bedroom opening
+sadd(box(0.06, 2.36, 0.07, frameMat), 0.10, 1.15, APT_D);
+sadd(box(0.06, 2.36, 0.07, frameMat), 2.90, 1.15, APT_D);
+sadd(box(2.86, 0.06, 0.07, frameMat), 1.50, 2.35, APT_D);
+
+// Living doors: 2 panels filling x=5.1–8.8 (each 1.85m wide)
+// Centre each panel: 5.1+0.925=6.025 and 5.1+2.775=7.875
+for (let i=0; i<2; i++) {
+  const px = 5.1 + 0.925 + i*1.85;  // 6.025, 7.875
+  sadd(box(1.82, 2.30, 0.05, glassMat), px, 1.15, APT_D);
+  sadd(box(0.05, 2.30, 0.07, frameMat), px-0.91, 1.15, APT_D);
+  sadd(box(0.05, 2.30, 0.07, frameMat), px+0.91, 1.15, APT_D);
+  sadd(box(1.86, 0.06, 0.07, frameMat), px, 2.32, APT_D);
+  sadd(box(1.86, 0.06, 0.07, frameMat), px, 0.03, APT_D);
+  sadd(box(1.82, 0.04, 0.06, frameMat), px, 1.22, APT_D);
+}
+// Outer frame across full living opening
+sadd(box(0.06, 2.36, 0.07, frameMat), 5.10, 1.15, APT_D);
+sadd(box(0.06, 2.36, 0.07, frameMat), 8.80, 1.15, APT_D);
+sadd(box(3.76, 0.06, 0.07, frameMat), 6.95, 2.35, APT_D);
+
+// ─────────────────────────────────────────────
+// PLANT HELPERS
+// ─────────────────────────────────────────────
+function makePlant(scale=1) {
+  const g = new THREE.Group();
+  const pot = cyl(0.11*scale, 0.14*scale, 0.22*scale, 10, M.plantPot);
+  pot.position.y = 0.11*scale; g.add(pot);
+  const stem = cyl(0.02*scale, 0.02*scale, 0.35*scale, 7, M.plant);
+  stem.position.y = 0.22*scale+0.175*scale; g.add(stem);
+  const crown = sph(0.22*scale, 10, M.plant);
+  crown.position.y = 0.22*scale+0.35*scale+0.18*scale; g.add(crown);
+  return g;
+}
+function makeTallPlant(scale=1) {
+  const g = new THREE.Group();
+  const pot = cyl(0.17*scale, 0.20*scale, 0.30*scale, 10, M.plantPot);
+  pot.position.y = 0.15*scale; g.add(pot);
+  const trunk = cyl(0.04*scale, 0.055*scale, 0.75*scale, 7, M.wood);
+  trunk.position.y = 0.30*scale+0.375*scale; g.add(trunk);
+  for (let i=0; i<7; i++) {
+    const a = (i/7)*Math.PI*2;
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.14*scale, 8, 6), M.plantDark);
+    leaf.scale.set(1, 2.6, 0.5);
+    leaf.position.set(Math.cos(a)*0.18*scale, 0.30*scale+0.75*scale+i*0.1*scale, Math.sin(a)*0.18*scale);
+    leaf.rotation.z = Math.cos(a)*0.4; g.add(leaf);
+  }
+  return g;
+}
+
+// ─────────────────────────────────────────────
+// LIVING / DINING
+// Layout from approved-layout.md:
+//   TV + short console on the PARTITION WALL (x=PX=4.2), screen faces EAST into living room
+//   Bar on partition wall beside TV (south side, z≈6.8–8.2)
+//   Sofa back against EAST wall (x≈APT_W), faces WEST toward TV
+// ─────────────────────────────────────────────
+
+// ── TV on PARTITION WALL (x=PX), screen faces east into living room ──
+const TV_Z = 6.5;  // shifted north to clear plant in south corner
+const TV_SCR_W = 2.10;  // screen width (Z axis)
+const TV_SCR_H = 1.10;  // screen height (Y axis)
+
+// TV console — runs along the partition wall face (north-south = Z axis)
+// Depth is east-west (thin, against wall). Width matches screen Z footprint.
+const tvConW = TV_SCR_W + 0.20;  // console slightly wider than screen
+const tvConD = 0.38;              // east-west depth
+const tvConH = 0.38;
+const tvCon = box(tvConD, tvConH, tvConW, M.woodDark);
+sadd(tvCon, PX + tvConD/2 + 0.02, tvConH/2, TV_Z);
+// Console legs
+for (const dz of [-(tvConW/2-0.12), (tvConW/2-0.12)])
+  sadd(cyl(0.022,0.022,0.10,8,M.darkMetal), PX+0.10, 0.05, TV_Z+dz);
+
+// Screen
+const tvScr = box(0.07, TV_SCR_H, TV_SCR_W, M.tvScreenOn);
+sadd(tvScr, PX+0.05, tvConH + TV_SCR_H/2 + 0.06, TV_Z);
+// Slim bezel frame
+sadd(box(0.05, TV_SCR_H+0.06, TV_SCR_W+0.06, M.darkMetal), PX+0.06, tvConH + TV_SCR_H/2 + 0.06, TV_Z);
+
+// TV bias-lighting — emissive planes ON the partition wall surface, 1 per edge
+// These are flush with the wall and glow outward like a real Ambilight/Govee halo
+const goveeCol = 0x8833ff;
+const scrY  = tvConH + TV_SCR_H/2 + 0.06;
+const tvWallX = PX + 0.01;  // flush on wall east face
+const glowMat = () => new THREE.MeshStandardMaterial({
+  color: goveeCol, emissive: goveeCol, emissiveIntensity: 3.5,
+  transparent: true, opacity: 0.92, side: THREE.FrontSide
+});
+// Top glow bar — wide horizontal, above screen
+const tvGlowTop = sadd(new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.20, TV_SCR_W+0.50), glowMat()), tvWallX, scrY + TV_SCR_H/2 + 0.13, TV_Z);
+// Bottom glow bar
+const tvGlowBot = sadd(new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.20, TV_SCR_W+0.50), glowMat()), tvWallX, scrY - TV_SCR_H/2 - 0.13, TV_Z);
+// North side glow bar
+const tvGlowN = sadd(new THREE.Mesh(new THREE.BoxGeometry(0.018, TV_SCR_H+0.50, 0.20), glowMat()), tvWallX, scrY, TV_Z - TV_SCR_W/2 - 0.13);
+// South side glow bar
+const tvGlowS = sadd(new THREE.Mesh(new THREE.BoxGeometry(0.018, TV_SCR_H+0.50, 0.20), glowMat()), tvWallX, scrY, TV_Z + TV_SCR_W/2 + 0.13);
+
+// Halo point light — sits in the room, casts coloured light on floor+ceiling visible from above
+const tvHaloPL = new THREE.PointLight(goveeCol, 0, 4.0);
+tvHaloPL.position.set(PX + 0.70, scrY, TV_Z);
+scene3.add(tvHaloPL);
+// Register all 4 glow meshes + halo PL into tvRectLights for applyLightState
+tvRectLights.push(tvGlowTop, tvGlowBot, tvGlowN, tvGlowS, tvHaloPL);
+applyLightState();
+
+// Govee floor lamp 2 — corner where partition wall meets balcony door
+// (south end of TV wall, near the living room balcony opening at z≈APT_D)
+function makeGoveeLamp(id, x, z, color=0x2255ff) {
+  const g = new THREE.Group();
+  // Chunky cylinder base (matches Govee Floor Lamp 2 reference)
+  const baseMat = new THREE.MeshStandardMaterial({color:0x111111, roughness:0.3, metalness:0.8});
+  const base = cyl(0.09, 0.11, 0.14, 20, baseMat);
+  base.position.y = 0.07; g.add(base);
+  // Slim dark pole
+  const pole = cyl(0.008, 0.008, 1.70, 8, new THREE.MeshStandardMaterial({color:0x0a0a0a,roughness:0.2,metalness:0.9}));
+  pole.position.y = 0.14 + 0.85; g.add(pole);
+  // Full-height emissive LED strip running the length of the pole (the whole pole glows)
+  const stripMat = new THREE.MeshStandardMaterial({
+    color, emissive: color, emissiveIntensity: 2.2,
+    transparent: true, opacity: 0.9
+  });
+  const strip = cyl(0.012, 0.012, 1.68, 8, stripMat);
+  strip.position.y = 0.14 + 0.84; g.add(strip);
+  // Soft glow at base (illuminated base ring visible in reference)
+  const baseGlowMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, emissive: color, emissiveIntensity: 1.5,
+    transparent: true, opacity: 0.7
+  });
+  const baseGlow = cyl(0.088, 0.088, 0.06, 20, baseGlowMat);
+  baseGlow.position.y = 0.03; g.add(baseGlow);
+  g.position.set(x, 0, z);
+  scene3.add(g);
+  // Point light from lamp
+  const pl = new THREE.PointLight(color, 3.5, 5.0);
+  pl.position.set(x, 1.5, z);
+  scene3.add(pl);
+  if (id) {
+    goveeLampMats[id] = { strip: stripMat, baseGlow: baseGlowMat, pl };
+    pointLights[id] = pl;
+  }
+  return g;
+}
+
+// Govee lamp 2 — partition wall / balcony corner (south end of living room)
+makeGoveeLamp('govee-floor-1', PX + 0.20, APT_D - 0.22, 0x2255ff);
+
+// Govee lamp 1 — NE corner of hallway (x≈5.2, z≈0, near kitchen entry)
+makeGoveeLamp('govee-hall', R.diele.x + R.diele.w - 0.22, R.diele.z + 0.22, 0xff6600);
+
+// Large dark plant — shortened so Govee floor lamp behind it is visible
+const tvPlantR = makeTallPlant(0.62);
+tvPlantR.position.set(PX+0.45, 0, APT_D-0.55); scene3.add(tvPlantR);
+// Smaller plant north side of TV — kept
+const tvPlantL = makePlant(0.85);
+tvPlantL.position.set(PX+0.22, 0, TV_Z-1.45); scene3.add(tvPlantL);
+
+// ── Sofa — back against EAST wall, faces west toward TV ──────
+// 2-seater with chaise extension on the NORTH end (left side when facing TV)
+// Arc lamp base in the SOUTH corner (east wall + south wall)
+const SF_BACK_X = APT_W - 0.10;  // back against east wall
+const SF_Z = 7.2;                 // z-centre of main 2-seat body
+const SOFA_L = 2.00;              // north-south length of main seat
+const SOFA_D = 0.96;              // east-west seat depth
+
+// Main 2-seat body
+sadd(box(SOFA_D, 0.46, SOFA_L, M.sofaBody), SF_BACK_X - SOFA_D/2, 0.23, SF_Z);
+// Back rest
+sadd(box(0.18, 0.55, SOFA_L, M.sofaBack), SF_BACK_X - 0.09, 0.51+0.275, SF_Z);
+// South armrest (regular end)
+sadd(box(SOFA_D, 0.50, 0.14, M.sofaBack), SF_BACK_X - SOFA_D/2, 0.48, SF_Z + SOFA_L/2 - 0.07);
+// North end connects to chaise — no armrest there
+
+// Chaise / leg-extension on NORTH end — extends north along east wall
+const CHAI_L = 1.35;
+const CHAI_D = SOFA_D + 0.28;
+const CHAI_Z = SF_Z - SOFA_L/2 - CHAI_L/2;
+sadd(box(CHAI_D, 0.46, CHAI_L, M.sofaBody), SF_BACK_X - CHAI_D/2, 0.23, CHAI_Z);
+sadd(box(0.14, 0.30, CHAI_L, M.sofaBack), SF_BACK_X - 0.07, 0.51+0.15, CHAI_Z);
+// Corner join
+sadd(box(CHAI_D, 0.46, 0.08, M.sofaBody), SF_BACK_X - CHAI_D/2, 0.23, SF_Z - SOFA_L/2);
+
+// Back cushions on main section
+for (let i=0; i<2; i++)
+  sadd(box(0.14, 0.34, 0.92, M.pillow), SF_BACK_X - 0.20, 0.46+0.17, SF_Z - 0.50 + i*1.00);
+sadd(box(0.14, 0.28, 0.38, M.pillowAccent), SF_BACK_X - 0.38, 0.46+0.14, SF_Z + 0.20);
+
+// Ottoman — separate square piece in front of main sofa
+const OTT_X = SF_BACK_X - SOFA_D - 0.50;
+const OTT_Z = SF_Z + 0.10;
+sadd(box(0.72, 0.38, 0.68, M.sofaBody), OTT_X, 0.19, OTT_Z);
+
+// Rug — large grey, under sofa + chaise + ottoman
+const rugCentreZ = SF_Z - CHAI_L/2 + 0.3;
+const rug = box(2.80, 0.022, SOFA_L + CHAI_L + 0.5, M.rug);
+rug.position.set(SF_BACK_X - 1.45, 0.011, rugCentreZ); scene3.add(rug);
+
+// ── Sofa under-light — warm amber LED strip along base perimeter ────────
+// Flat emissive panel just under sofa belly, projecting orange onto floor
+const couchLedMat = new THREE.MeshStandardMaterial({
+  color: 0xff9020, emissive: 0xff8010, emissiveIntensity: 2.8,
+  transparent: true, opacity: 0.9
+});
+// Main sofa under-belly glow panel (flat, y just above floor)
+const couchLedMain = new THREE.Mesh(new THREE.BoxGeometry(SOFA_D - 0.04, 0.025, SOFA_L - 0.04), couchLedMat);
+couchLedMain.position.set(SF_BACK_X - SOFA_D/2, 0.020, SF_Z);
+scene3.add(couchLedMain);
+// Chaise under-belly glow panel
+const couchLedChai = new THREE.Mesh(new THREE.BoxGeometry(CHAI_D - 0.04, 0.025, CHAI_L - 0.04), couchLedMat);
+couchLedChai.position.set(SF_BACK_X - CHAI_D/2, 0.020, CHAI_Z);
+scene3.add(couchLedChai);
+// Point lights at floor level — cast orange glow visibly onto floor surface
+// Set initial intensity to match lightState['couch-light'].on=true, brightness=0.7 → 0.7*3.2=2.24
+makePL('couch-light',  SF_BACK_X - SOFA_D/2, 0.04, SF_Z,   0xff8800, 2.24, 2.8);
+const couchPL2 = new THREE.PointLight(0xff8800, 2.24, 2.8);
+couchPL2.position.set(SF_BACK_X - CHAI_D/2, 0.04, CHAI_Z);
+scene3.add(couchPL2);
+// Push into pre-declared array for toggle
+couchLedMeshes.push(couchLedMain, couchLedChai, couchPL2);
+
+// ── Lamp Shade (arc floor lamp) — SE corner of living room ───────
+// Base in SE corner: x near east wall, z near south wall but inside apartment.
+// The arm sweeps WEST-NORTHWEST over the sofa. All parts are in one Group so
+// the whole lamp is rigid — shade stays connected at every camera angle.
+const LAMP_X = APT_W - 0.18;   // x: near east wall
+const LAMP_Z = APT_D - 1.20;   // z: 1.2m from south wall — well inside living room, away from loggia
+
+const arcGrp = new THREE.Group();
+arcGrp.position.set(LAMP_X, 0, LAMP_Z);
+scene3.add(arcGrp);
+
+// Base disc
+const arcBase = cyl(0.10, 0.13, 0.06, 12, M.darkMetal);
+arcBase.position.set(0, 0.03, 0); arcGrp.add(arcBase);
+
+// Vertical pole 0 → 1.80m
+const arcPole = cyl(0.024, 0.024, 1.80, 8, M.darkMetal);
+arcPole.position.set(0, 0.90, 0); arcGrp.add(arcPole);
+
+// Arc pivot at pole top — arm length 2.10m, sweeping west over sofa.
+// Shade is PARENTED to the arm tip so it's always connected.
+const arcPivot = new THREE.Group();
+arcPivot.position.set(0, 1.80, 0);
+arcGrp.add(arcPivot);
+
+const ARM_LEN = 1.85;
+
+// Curved arc arm using TubeGeometry along a Catmull-Rom spline.
+// Control points in arcPivot-local space (pivot is at pole top, Y=1.80).
+// The curve sweeps: straight up from pivot, arches forward (-Z) and slightly down.
+// Final point at approximately (0, +0.45, -ARM_LEN) — above and forward.
+{
+  const pts = [
+    new THREE.Vector3(0,  0.00,  0.00),  // pivot base
+    new THREE.Vector3(0,  0.55, -0.35),  // early rise
+    new THREE.Vector3(0,  0.80, -0.90),  // peak of arch
+    new THREE.Vector3(0,  0.58, -1.40),  // descending
+    new THREE.Vector3(0,  0.30, -ARM_LEN), // shade end
+  ];
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const tubeGeo = new THREE.TubeGeometry(curve, 24, 0.013, 7, false);
+  const arcTube = new THREE.Mesh(tubeGeo, M.darkMetal);
+  arcPivot.add(arcTube);
+  // Store tip for shadeTip parenting
+  arcPivot._tipX = pts[4].x;
+  arcPivot._tipY = pts[4].y;
+  arcPivot._tipZ = pts[4].z;
+}
+
+// Point arm toward sofa centre (west-northwest from SE lamp base).
+// dx = sofaTarget.x - LAMP_X (negative = west), dz = sofaTarget.z - LAMP_Z (negative = north)
+// arm tip at local (0,0,-ARM_LEN) after rotY → world offset (sin(rotY)*-ARM_LEN, 0, cos(rotY)*-ARM_LEN)
+// So rotY = atan2(-dx, -dz) points local -Z toward (dx,dz).
+const arcSofaX = SF_BACK_X - 0.80;   // ~9.10 — sofa centre, not back edge
+const arcSofaZ = SF_Z;                // 7.2
+arcPivot.rotation.order = 'YXZ';
+arcPivot.rotation.y = Math.atan2(-(arcSofaX - LAMP_X), -(arcSofaZ - LAMP_Z));
+arcPivot.rotation.x = -0.28;  // tilt arm slightly downward toward shade
+
+// Shade group parented at arc tip
+const shadeTip = new THREE.Group();
+shadeTip.position.set(arcPivot._tipX, arcPivot._tipY, arcPivot._tipZ);
+arcPivot.add(shadeTip);
+
+// Drum shade — large cylindrical cream fabric shade (IKEA Samtid style)
+// Outer drum shell: open-ended cylinder, cream/linen fabric material
+arcShadeMat = new THREE.MeshStandardMaterial({
+  color: 0xf5ede0, roughness: 0.85, metalness: 0.0,
+  emissive: 0xffe8c0, emissiveIntensity: 0.0,
+  transparent: true, opacity: 0.92, side: THREE.DoubleSide,
+});
+const drumR = 0.26, drumH = 0.32;
+const drumOuter = new THREE.Mesh(new THREE.CylinderGeometry(drumR, drumR, drumH, 28, 1, true), arcShadeMat);
+drumOuter.position.set(0, -drumH * 0.5, 0); // hang so top is at shade tip
+shadeTip.add(drumOuter);
+
+// Top ring (thin metal band)
+const ringMat = M.darkMetal;
+const topRing = new THREE.Mesh(new THREE.TorusGeometry(drumR, 0.007, 6, 28), ringMat);
+topRing.rotation.x = Math.PI / 2;
+topRing.position.set(0, 0, 0);
+shadeTip.add(topRing);
+
+// Bottom ring
+const botRing = new THREE.Mesh(new THREE.TorusGeometry(drumR, 0.007, 6, 28), ringMat);
+botRing.rotation.x = Math.PI / 2;
+botRing.position.set(0, -drumH, 0);
+shadeTip.add(botRing);
+
+// Inner glow disc — emits light downward through open bottom, tinted with shade colour
+arcGlowMat = new THREE.MeshStandardMaterial({
+  color: 0xffe8b0, emissive: 0xffe8b0, emissiveIntensity: 3.0,
+  transparent: true, opacity: 0.85,
+});
+const arcGlowDisc = new THREE.Mesh(new THREE.CircleGeometry(drumR * 0.70, 20), arcGlowMat);
+arcGlowDisc.rotation.x = -Math.PI / 2; // face downward
+arcGlowDisc.position.set(0, -drumH * 0.15, 0); // inside shade near top
+shadeTip.add(arcGlowDisc);
+
+// Side glow layer — thin inner cylinder just inside the drum, DoubleSide so
+// the fabric sides glow with the same colour as the top disc.
+const arcSideGlowMat = new THREE.MeshStandardMaterial({
+  color: 0xffe8b0, emissive: 0xffe8b0, emissiveIntensity: 0.0,
+  transparent: true, opacity: 0.80, side: THREE.DoubleSide,
+});
+const arcSideGlow = new THREE.Mesh(
+  new THREE.CylinderGeometry(drumR * 0.92, drumR * 0.92, drumH * 0.90, 28, 1, true),
+  arcSideGlowMat
+);
+arcSideGlow.position.set(0, -drumH * 0.5, 0);
+shadeTip.add(arcSideGlow);
+// Wire side glow into arcGlowMat updates — we store it so applyLightState can drive it
+shadeTip._sideGlowMat = arcSideGlowMat;
+
+// Small spider fitting (dark metal X-cross at top centre)
+for (let a = 0; a < 2; a++) {
+  const spoke = new THREE.Mesh(new THREE.BoxGeometry(drumR * 1.7, 0.008, 0.008), ringMat);
+  spoke.rotation.y = a * Math.PI / 2;
+  spoke.position.set(0, -0.018, 0);
+  shadeTip.add(spoke);
+}
+
+// Compute shade world position for the point light using the actual arc tip
+const _tipLocal = new THREE.Vector3(arcPivot._tipX, arcPivot._tipY, arcPivot._tipZ);
+_tipLocal.applyEuler(arcPivot.rotation);
+const shadeWorldX = LAMP_X + _tipLocal.x;
+const shadeWorldZ = LAMP_Z + _tipLocal.z;
+const shadeWorldY = 1.80 + _tipLocal.y;
+pointLights['arc-lamp'].position.set(shadeWorldX, shadeWorldY - 0.15, shadeWorldZ);
+
+// ── Small side table at NORTH end of sofa ─────────────────────
+const ST_X = SF_BACK_X - SOFA_D/2, ST_Z = CHAI_Z - CHAI_L/2 - 0.35;
+sadd(cyl(0.28, 0.28, 0.04, 20, M.wood), ST_X, 0.52, ST_Z);
+sadd(cyl(0.03, 0.03, 0.50, 8, M.darkMetal), ST_X, 0.25, ST_Z);
+sadd(cyl(0.07, 0.09, 0.14, 10, M.plantPot), ST_X, 0.60, ST_Z);
+const poinsettia = sph(0.11, 8, new THREE.MeshStandardMaterial({
+  color:0xcc1010, roughness:0.9, emissive:0xaa0808, emissiveIntensity:0.2 }));
+poinsettia.scale.y = 0.7;
+poinsettia.position.set(ST_X, 0.78, ST_Z); scene3.add(poinsettia);
+
+// ── Gallery wall of posters on EAST wall above sofa ───────────
+const frameMat2 = std(0x0a0a0a, 0.6, 0.2);
+const posterColors = [0x2244aa, 0x882222, 0x44aa44, 0xaa7722, 0x223388, 0x222222];
+const posterLayout = [
+  [-0.72, 1.95, 0.50, 0.36],
+  [ 0.00, 1.95, 0.50, 0.36],
+  [ 0.72, 1.95, 0.50, 0.36],
+  [-0.72, 1.46, 0.50, 0.36],
+  [ 0.00, 1.46, 0.50, 0.36],
+  [ 0.72, 1.46, 0.50, 0.36],
+];
+for (let i=0; i<posterLayout.length; i++) {
+  const [dz, py, pw, ph] = posterLayout[i];
+  const pz = SF_Z + dz;
+  sadd(box(0.05, ph+0.04, pw+0.04, frameMat2), APT_W+0.01, py, pz);
+  sadd(box(0.03, ph, pw, std(posterColors[i], 0.95, 0)), APT_W+0.02, py, pz);
+}
+
+// ── Coffee table in front of sofa ────────────────────────────
+const ctX = OTT_X - 0.68, ctZ = SF_Z + 0.10;
+sadd(box(0.06, 0.55, 1.05, M.darkMetal), ctX, 0.44, ctZ);
+sadd(box(0.50, 0.02, 0.96, new THREE.MeshStandardMaterial({
+  color:0xb8d8e8, roughness:0.05, metalness:0.1, transparent:true, opacity:0.45 })), ctX, 0.48, ctZ);
+for (const dz of [-0.42, 0.42])
+  sadd(cyl(0.022,0.022,0.42,8,M.darkMetal), ctX, 0.21, ctZ+dz);
+
+// ── East wall WINDOWS — 2 large dark windows near dining area ──
+// Wide dark windows flush with the east wall (x=APT_W), z≈3.1–5.5
+// Use a recessed approach: dark exterior behind, thin frame, dark glass pane
+const winFrameMat = std(0xf2f0eb, 0.55, 0.05);
+const winGlassMat = new THREE.MeshStandardMaterial({
+  color:0x0a1020, roughness:0.05, metalness:0.12,
+  transparent:true, opacity:0.85, side:THREE.DoubleSide,
+  polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1
+});
+const winBlindMat = new THREE.MeshStandardMaterial({
+  color:0xf0ece4, roughness:0.75, transparent:true, opacity:0.70 });
+
+// Two windows — each 1.1m wide, 1.5m tall
+// Window 1: z=3.15–4.25  Window 2: z=4.45–5.55
+const WIN_CONFIGS = [
+  { z0: 3.15, z1: 4.25 },
+  { z0: 4.45, z1: 5.55 },
+];
+for (const { z0, z1 } of WIN_CONFIGS) {
+  const ww = z1 - z0;  // width in Z
+  const wh = 1.50;     // height
+  const wy = 0.42;     // sill height
+  const wz = z0 + ww/2;
+  // Outer frame — sits on east exterior wall face
+  sadd(box(0.10, wh+0.10, ww+0.10, winFrameMat), APT_W-0.02, wy + wh/2, wz);
+  // Dark glass pane — recessed slightly
+  sadd(box(0.06, wh, ww, winGlassMat), APT_W-0.04, wy + wh/2, wz);
+  // Window sill
+  sadd(box(0.15, 0.04, ww+0.12, winFrameMat), APT_W-0.05, wy, wz);
+  // Thin inner frame border (top + sides visible from inside)
+  sadd(box(0.06, wh+0.06, 0.05, winFrameMat), APT_W-0.02, wy + wh/2, z0);
+  sadd(box(0.06, wh+0.06, 0.05, winFrameMat), APT_W-0.02, wy + wh/2, z1);
+  sadd(box(0.06, 0.05, ww+0.06, winFrameMat), APT_W-0.02, wy + wh, wz);
+  // Horizontal mid-rail (divides into top + bottom panes)
+  sadd(box(0.06, 0.05, ww, winFrameMat), APT_W-0.02, wy + wh*0.52, wz);
+  // Honeycomb blind — partially drawn (covers lower half)
+  sadd(box(0.04, wh*0.50, ww-0.06, winBlindMat), APT_W-0.06, wy + wh*0.24, wz);
+}
+// Subtle cool exterior light through windows (night sky glow)
+const winLight1 = new THREE.PointLight(0x8090c0, 0.6, 3.5);
+winLight1.position.set(APT_W-0.4, 1.2, 3.7); scene3.add(winLight1);
+const winLight2 = new THREE.PointLight(0x8090c0, 0.6, 3.5);
+winLight2.position.set(APT_W-0.4, 1.2, 5.0); scene3.add(winLight2);
+
+// ── Dining table — small round, near east wall windows ────────
+// Moved east toward window area (photos show table right by the window)
+sadd(cyl(0.62, 0.62, 0.055, 24, M.tableTop), 8.8, 0.75, 4.2);
+sadd(cyl(0.06, 0.08, 0.72, 10, M.woodDark), 8.8, 0.36, 4.2);
+// Small plant/candle on table
+sadd(cyl(0.06, 0.08, 0.20, 10, M.plantPot), 8.8, 0.80, 4.2);
+const flwr = sph(0.12, 10, new THREE.MeshStandardMaterial({color:0xffdd50,roughness:0.9,emissive:0xffa000,emissiveIntensity:0.15}));
+flwr.scale.y=0.6; sadd(flwr, 8.8, 1.00, 4.2);
+// Cage pendant lights — black geometric wireframe cage with exposed Edison bulb inside.
+// Group origin = ceiling surface. Everything built hanging downward (negative Y).
+// cordLen = distance from ceiling to top of cage.
+function makeCagePendant(cx, cz, cordLen) {
+  const grp = new THREE.Group();
+  const cageMat = M.darkMetal;
+  const S = 0.17;    // half-size of cage in XZ
+  const CH = 0.22;   // cage height
+  const cageTop = -(cordLen + 0.045); // Y of cage top ring (canopy bottom)
+
+  // Ceiling canopy disc (flat at ceiling)
+  const canopy = cyl(0.072, 0.062, 0.042, 10, cageMat);
+  canopy.position.set(0, -0.021, 0); grp.add(canopy);
+
+  // Drop cord from canopy bottom to cage top
+  const cord = cyl(0.004, 0.004, cordLen, 6, cageMat);
+  cord.position.set(0, -(cordLen/2 + 0.042), 0); grp.add(cord);
+
+  // 4 vertical corner rods of cage
+  for (const [dx,dz] of [[-S,-S],[-S,S],[S,-S],[S,S]]) {
+    const r = cyl(0.007,0.007, CH, 6, cageMat);
+    r.position.set(dx, cageTop - CH/2, dz); grp.add(r);
+  }
+  // 4 top horizontal rails of cage (at cage top ring)
+  for (const [[ax,az],[bx,bz]] of [
+    [[-S,-S],[-S,S]], [[-S,S],[S,S]], [[S,S],[S,-S]], [[S,-S],[-S,-S]]
+  ]) {
+    const len = Math.sqrt((bx-ax)**2+(bz-az)**2);
+    const r = box(len, 0.009, 0.009, cageMat);
+    r.position.set((ax+bx)/2, cageTop, (az+bz)/2);
+    r.rotation.y = Math.atan2(bx-ax, bz-az); grp.add(r);
+  }
+  // 4 bottom rails (at cage bottom ring)
+  for (const [[ax,az],[bx,bz]] of [
+    [[-S,-S],[-S,S]], [[-S,S],[S,S]], [[S,S],[S,-S]], [[S,-S],[-S,-S]]
+  ]) {
+    const len = Math.sqrt((bx-ax)**2+(bz-az)**2);
+    const r = box(len, 0.009, 0.009, cageMat);
+    r.position.set((ax+bx)/2, cageTop - CH, (az+bz)/2);
+    r.rotation.y = Math.atan2(bx-ax, bz-az); grp.add(r);
+  }
+  // 4 diagonal struts from top corners converging to centre top (peak detail)
+  for (const [dx,dz] of [[-S,-S],[-S,S],[S,-S],[S,S]]) {
+    const diagLen = Math.sqrt(dx*dx + dz*dz + 0.04);
+    const strut = cyl(0.005, 0.005, diagLen, 6, cageMat);
+    strut.position.set(dx/2, cageTop + 0.02, dz/2);
+    strut.rotation.x = Math.atan2(dz, 0.06);
+    strut.rotation.z = -Math.atan2(dx, 0.06);
+    grp.add(strut);
+  }
+
+  // Edison bulb inside cage — MeshBasicMaterial so cage fill lights don't
+  // contaminate the emissive color (warm PointLights in dining area would otherwise
+  // make red look pinkish-orange through MeshStandardMaterial).
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffe8b0 });
+  const bulb = sph(0.058, 10, bulbMat);
+  bulb.position.set(0, cageTop - CH*0.45, 0); grp.add(bulb);
+
+  // Place group at ceiling height
+  grp.position.set(cx, W_H, cz);
+  scene3.add(grp);
+  return { group: grp, bulbMat };
+}
+
+const pendant1Cage = makeCagePendant(8.8, 4.2, 0.48);
+const pendant2Cage = makeCagePendant(5.6, 4.2, 0.48);
+pendant1BulbMat = pendant1Cage.bulbMat;
+pendant2BulbMat = pendant2Cage.bulbMat;
+// Point lights already registered as 'pendant-1' and 'pendant-2' above
+// 2 dining chairs around table — west side only so they don't overlap sofa
+for (const a of [Math.PI*0.85, Math.PI*1.15]) {
+  const cx=8.8+Math.sin(a)*0.96, cz=4.2+Math.cos(a)*0.96;
+  sadd(box(0.44,0.065,0.44,M.chairSeat), cx, 0.45, cz);
+  const bk = box(0.44,0.55,0.055,M.chairDark);
+  bk.position.set(cx, 0.72, cz+Math.cos(a)*0.21); bk.rotation.y=a; scene3.add(bk);
+  for (const [dx,dz] of [[-0.17,-0.17],[-0.17,0.17],[0.17,-0.17],[0.17,0.17]])
+    sadd(cyl(0.02,0.02,0.44,6,M.darkMetal), cx+dx, 0.22, cz+dz);
+}
+
+// ── Large floor plant — moved to loggia (from between balcony wall and living room)
+const lp1 = makeTallPlant(1.05);
+lp1.position.set(3.8, -0.15, 9.4); scene3.add(lp1);
+
+// ─────────────────────────────────────────────
+// BAR — PARTITION WALL, south side of TV (z≈6.8–8.2)
+// Open black metal frame, 4 shelves, bottles, wine glasses, warm LED glow
+// Against east face of partition wall (x=PX), south of the TV stand
+// ─────────────────────────────────────────────
+const barG = new THREE.Group();
+const BW = 0.52;   // bar depth (east-west, sits against partition)
+const BD = 1.42;   // bar width (north-south)
+const BH = 2.05;   // total height
+const NS = 4;      // shelves
+const SS = BH / (NS - 0.3);
+
+// 4 vertical round posts
+for (const [bx,bz] of [[-BW/2+0.035,-BD/2+0.035],[-BW/2+0.035,BD/2-0.035],[BW/2-0.035,-BD/2+0.035],[BW/2-0.035,BD/2-0.035]]) {
+  const post = cyl(0.022,0.022,BH,8,M.barMetal);
+  post.position.set(bx,BH/2,bz); barG.add(post);
+}
+// Horizontal rails and shelves at each level
+for (let lev=0; lev<NS; lev++) {
+  const y = 0.16 + lev*SS;
+  for (const bz of [-BD/2,BD/2]) {
+    const r=box(BW,0.020,0.020,M.barMetal); r.position.set(0,y,bz); barG.add(r);
+  }
+  for (const bx of [-BW/2,BW/2]) {
+    const r=box(0.020,0.020,BD,M.barMetal); r.position.set(bx,y,0); barG.add(r);
+  }
+  // Shelf board — slightly lighter dark wood
+  const shelf = box(BW-0.06, 0.026, BD-0.06, M.barShelf);
+  shelf.position.set(0,y+0.013,0); barG.add(shelf);
+
+  // LED strip glow on underside of every shelf
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(BW-0.10, 0.012, BD-0.10), EMIT.barGlow);
+  glow.position.set(0,y-0.008,0); barG.add(glow);
+}
+// Top surface
+const barTop = box(BW+0.02, 0.04, BD+0.02, M.barShelf);
+barTop.position.set(0, BH+0.02, 0); barG.add(barTop);
+
+// Bottles on shelves 1–3
+const bCols = [
+  new THREE.MeshStandardMaterial({color:0x0a2010,roughness:0.1,metalness:0.05,transparent:true,opacity:0.88}),
+  new THREE.MeshStandardMaterial({color:0x7a2c08,roughness:0.12,metalness:0.05,transparent:true,opacity:0.85}),
+  new THREE.MeshStandardMaterial({color:0x0a1a28,roughness:0.08,metalness:0.08,transparent:true,opacity:0.90}),
+  new THREE.MeshStandardMaterial({color:0x2a1408,roughness:0.15,metalness:0.02,transparent:true,opacity:0.82}),
+  new THREE.MeshStandardMaterial({color:0x1a3010,roughness:0.10,metalness:0.05,transparent:true,opacity:0.88}),
+];
+for (let lev=1; lev<NS; lev++) {
+  const y = 0.16 + lev*SS + 0.026;
+  const nb = lev===1 ? 6 : lev===2 ? 5 : 4;
+  for (let b=0; b<nb; b++) {
+    const bz = -BD/2+0.1 + b*((BD-0.18)/(nb-1));
+    const mat = bCols[b%bCols.length];
+    // Bottle body
+    const body = cyl(0.032,0.026,0.24,9,mat);
+    body.position.set(0, y+0.13, bz); barG.add(body);
+    // Neck
+    const neck = cyl(0.016,0.022,0.11,9,mat);
+    neck.position.set(0, y+0.30, bz); barG.add(neck);
+    // Cap
+    const cap = cyl(0.018,0.018,0.02,9,M.brightMetal);
+    cap.position.set(0, y+0.365, bz); barG.add(cap);
+  }
+}
+// Wine glass hanging rack on top shelf underside
+for (let g=0; g<4; g++) {
+  const gz = -BD/2+0.25 + g*((BD-0.45)/3);
+  const stem = cyl(0.008,0.008,0.10,6,M.brightMetal);
+  stem.position.set(0, BH-0.04, gz); barG.add(stem);
+  const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.055,9,7),
+    new THREE.MeshStandardMaterial({color:0xd8eef8,roughness:0.04,metalness:0.1,transparent:true,opacity:0.50}));
+  bowl.scale.y=0.7; bowl.position.set(0, BH-0.13, gz); barG.add(bowl);
+}
+// Decorative items on top
+const barDecoGlow = sph(0.06, 8, EMIT.warmGlow);
+barDecoGlow.position.set(0, BH+0.1, BD/4); barG.add(barDecoGlow);
+
+// Place bar on partition wall east face, north position
+barG.position.set(PX + BW/2 + 0.05, 0, 4.3);
+scene3.add(barG);
+
+// Tall plant beside bar (north end)
+const barPlant = makeTallPlant(1.0);
+barPlant.position.set(PX + BW/2 + 0.1, 0, 3.1); scene3.add(barPlant);
+
+// ─────────────────────────────────────────────
+// BEDROOM
+// Bed: headboard against PARTITION WALL (east face x=PX), foot toward west
+// Desk: NW corner
+// Wardrobe: WEST wall of bedroom (x≈0.3)
+// ─────────────────────────────────────────────
+
+// ── Bed — headboard against PARTITION WALL (x=PX), runs east-west ─
+const BED_LEN = 2.10;  // east-west length
+const BED_W   = 1.68;  // north-south width
+const BED_X = PX - BED_LEN/2 - 0.08;  // centre x; headboard east end near PX
+const BED_Z = 6.2;  // centre z
+sadd(box(BED_LEN, 0.24, BED_W, M.bedFrame), BED_X, 0.12, BED_Z);
+sadd(box(BED_LEN-0.08, 0.26, BED_W-0.08, M.bed), BED_X, 0.37, BED_Z);
+// Headboard — east end, against partition wall
+const hb = box(0.12, 0.78, BED_W, M.bedFrame);
+hb.position.set(BED_X + BED_LEN/2 - 0.06, 0.62, BED_Z); scene3.add(hb);
+// Duvet
+sadd(box(BED_LEN-0.10, 0.17, 1.22, M.bedDark), BED_X, 0.67, BED_Z+0.15);
+// Pillows — east end (near headboard)
+for (let i=0; i<2; i++)
+  sadd(box(0.56,0.11,0.38,M.pillow), BED_X + BED_LEN/2 - 0.35, 0.68, BED_Z - 0.37 + i*0.74);
+// Bedside tables — one either side of headboard (east end, near partition wall)
+// North side of headboard
+sadd(box(0.40,0.04,0.40,M.woodLight), BED_X + BED_LEN/2 + 0.26, 0.44, BED_Z - BED_W/2 - 0.26);
+sadd(cyl(0.11,0.045,0.17,10,M.woodLight), BED_X + BED_LEN/2 + 0.26, 0.54, BED_Z - BED_W/2 - 0.26);
+sadd(sph(0.038, 8, EMIT.warmGlow), BED_X + BED_LEN/2 + 0.26, 0.64, BED_Z - BED_W/2 - 0.26);
+// South side of headboard
+sadd(box(0.40,0.04,0.40,M.woodLight), BED_X + BED_LEN/2 + 0.26, 0.44, BED_Z + BED_W/2 + 0.26);
+sadd(cyl(0.11,0.045,0.17,10,M.woodLight), BED_X + BED_LEN/2 + 0.26, 0.54, BED_Z + BED_W/2 + 0.26);
+sadd(sph(0.038, 8, EMIT.warmGlow), BED_X + BED_LEN/2 + 0.26, 0.64, BED_Z + BED_W/2 + 0.26);
+
+// ── Cloud pendant lamp — bedroom centre ceiling (IKEA Krusning style) ──────
+// Wide flat layered translucent drapey sheets, warm glow from within.
+// All cloud meshes stored in cloudMeshes[] so applyLightState can colour them.
+{
+  const BED_CX = (R.schlafen.x + R.schlafen.w/2);
+  const BED_CZ = BED_Z;
+  // MeshBasicMaterial: ignores all scene lighting — color renders exactly as set.
+  // This is essential for colored bulbs: ambient/directional lights would otherwise
+  // contaminate the hue, making red look pinkish-orange regardless of emissive settings.
+  const cloudMat = new THREE.MeshBasicMaterial({
+    color: 0xdfd8cc,
+    transparent: false, opacity: 1.0, side: THREE.DoubleSide
+  });
+  // Ceiling cord
+  sadd(cyl(0.008, 0.008, 0.55, 6, M.darkMetal), BED_CX, W_H - 0.28, BED_CZ);
+  // Layered draped sheet volumes — flat ellipsoid-like clusters at different heights
+  const layers = [
+    [0,     0,    0,    0.15, 0.08, 1.0,  1.0 ],
+    [-0.18, 0.04, 0.05, 0.20, 0.04, 0.85, 0.7 ],
+    [ 0.16, 0.06,-0.08, 0.10, 0.12, 0.9,  0.75],
+    [-0.08,-0.05, 0.14, 0.18, 0.06, 0.75, 0.85],
+    [ 0.10,-0.04,-0.12, 0.12, 0.10, 0.80, 0.90],
+    [ 0.22, 0.02, 0.04, 0.08, 0.15, 0.6,  0.55],
+    [-0.20, 0.02,-0.03, 0.14, 0.06, 0.58, 0.60],
+  ];
+  for (const [dx, dy, dz, rx, rz, sx, sz] of layers) {
+    const geo = new THREE.SphereGeometry(0.28, 10, 6);
+    const mat = cloudMat.clone(); // clone so each can be individually coloured
+    const m = new THREE.Mesh(geo, mat);
+    m.scale.set(sx, 0.28, sz);
+    m.rotation.x = rx; m.rotation.z = rz;
+    m.position.set(BED_CX + dx, W_H - 0.75 + dy, BED_CZ + dz);
+    scene3.add(m);
+    cloudMeshes.push(m); // track for colour/brightness control
+  }
+  // Warm glow bulb inside
+  const cloudBulbMat = new THREE.MeshStandardMaterial({
+    color:0xffe8a0, emissive:0xffe8a0, emissiveIntensity:2.2
+  });
+  sadd(new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), cloudBulbMat), BED_CX, W_H - 0.75, BED_CZ);
+  cloudMeshes.push({ isBulb: true, material: cloudBulbMat }); // track bulb separately
+  // The point light is already registered as 'bedroom-main' via makePL above
+}
+
+// ── Desk — NW corner, wider with curved ultrawide monitor ────
+const DESK_CX = 1.05, DESK_CZ = 3.05;
+const DESK_W = 1.65;  // east-west length, fits within bedroom x=0..4.2
+const DESK_D = 0.60;  // north-south depth
+const deskTop = box(DESK_W, 0.042, DESK_D, M.desk);
+deskTop.position.set(DESK_CX, 0.74, DESK_CZ); scene3.add(deskTop);
+for (const [dx,dz] of [[-DESK_W/2+0.08,-DESK_D/2+0.07],[-DESK_W/2+0.08,DESK_D/2-0.07],[DESK_W/2-0.08,-DESK_D/2+0.07],[DESK_W/2-0.08,DESK_D/2-0.07]])
+  sadd(cyl(0.03,0.03,0.72,8,M.darkMetal), DESK_CX+dx, 0.36, DESK_CZ+dz);
+// Desk carpet
+sadd(box(DESK_W+0.50, 0.022, DESK_D+0.80, new THREE.MeshStandardMaterial({color:0x4a3a5a,roughness:0.95,metalness:0})), DESK_CX, 0.011, DESK_CZ+0.30);
+// Single large curved ultrawide monitor — wide panel facing south (visible from camera)
+// Placed on north edge of desk, panel depth 0.14 so clearly readable from above-south view
+const monH = 0.44;
+const monW = DESK_W - 0.10;  // east-west span (1.55m — ultrawide)
+const monZ = DESK_CZ - DESK_D/2 + 0.10;  // slightly off north wall to avoid clipping
+const monScreenMat = new THREE.MeshStandardMaterial({
+  color: 0x081020, roughness:0.05, metalness:0.1, emissive:0x0a1530, emissiveIntensity:0.6
+});
+// Main screen body — thick enough to see from isometric (Z=0.14 depth)
+const monPanel = box(monW, monH, 0.14, monScreenMat);
+monPanel.position.set(DESK_CX, 0.74 + 0.04 + monH/2, monZ);
+scene3.add(monPanel);
+// Dark metal bezel frame around screen
+sadd(box(monW+0.05, monH+0.05, 0.12, M.darkMetal), DESK_CX, 0.74+0.04+monH/2, monZ+0.015);
+// Slight curve suggestion — thin side-bezels that angle back
+sadd(box(0.04, monH+0.03, 0.16, M.darkMetal), DESK_CX - monW/2 - 0.01, 0.74+0.04+monH/2, monZ+0.02);
+sadd(box(0.04, monH+0.03, 0.16, M.darkMetal), DESK_CX + monW/2 + 0.01, 0.74+0.04+monH/2, monZ+0.02);
+// Monitor stand — central arm + base
+sadd(box(0.24, 0.04, 0.16, M.darkMetal), DESK_CX, 0.78, monZ+0.12);
+sadd(cyl(0.022, 0.022, 0.28, 8, M.darkMetal), DESK_CX, 0.78+0.14, monZ+0.12);
+// Desk lamp (repositioned to right side)
+sadd(cyl(0.04,0.05,0.28,10,M.darkMetal), DESK_CX+DESK_W/2-0.12, 0.79, DESK_CZ+0.10);
+sadd(cyl(0.11,0.045,0.15,10,M.woodLight), DESK_CX+DESK_W/2-0.12, 0.79+0.28+0.075, DESK_CZ+0.10);
+sadd(sph(0.040,8,EMIT.warmGlow), DESK_CX+DESK_W/2-0.12, 0.79+0.25, DESK_CZ+0.10);
+// Chair
+sadd(box(0.46,0.07,0.46,M.chairDark), DESK_CX, 0.46, DESK_CZ+0.60);
+sadd(box(0.46,0.65,0.055,M.chairDark), DESK_CX, 0.79, DESK_CZ+0.84);
+
+// ── Wardrobe — WEST wall of bedroom (x≈0.32), doors face east ─
+const WRD_X = 0.34, WRD_Z = 6.8;
+sadd(box(0.62, 2.15, 1.80, M.wardrobe), WRD_X, 1.075, WRD_Z);
+// Door faces (east-facing)
+sadd(box(0.04, 2.10, 0.86, M.wardrobeFront), WRD_X+0.33, 1.05, WRD_Z-0.45);
+sadd(box(0.04, 2.10, 0.86, M.wardrobeFront), WRD_X+0.33, 1.05, WRD_Z+0.45);
+// Door handles
+sadd(box(0.11,0.025,0.025,M.darkMetal), WRD_X+0.35, 1.05, WRD_Z-0.06);
+sadd(box(0.11,0.025,0.025,M.darkMetal), WRD_X+0.35, 1.05, WRD_Z+0.06);
+
+// ── Bedroom plants ─────────────────────────────────────────────
+// bPlant1 removed (was blocking bedroom doorway)
+const bPlant2 = makeTallPlant(0.88); bPlant2.position.set(1.2, 0, 8.3); scene3.add(bPlant2);
+
+// ─────────────────────────────────────────────
+// BATHROOM
+// ─────────────────────────────────────────────
+sadd(box(0.38,0.46,0.54,M.bathTile), 2.55, 0.23, 0.68);
+sadd(box(0.36,0.04,0.42,M.bathTile), 2.55, 0.48, 0.64);
+sadd(box(0.36,0.36,0.16,M.bathTile), 2.55, 0.64, 0.97);
+sadd(box(0.58,0.15,0.46,M.bathTile), 2.3, 0.82, 2.0);
+sadd(box(0.58,0.80,0.46,M.kitchenCab), 2.3, 0.40, 2.0);
+// Shower
+sadd(box(1.05,0.04,1.25,M.bathTile), 0.7, 0.02, 1.0);
+const sGlass1 = box(1.05,2.05,0.04,glassMat); sGlass1.position.set(0.7,1.025,1.65); scene3.add(sGlass1);
+const sGlass2 = box(0.04,2.05,1.27,glassMat); sGlass2.position.set(1.25,1.025,1.0); scene3.add(sGlass2);
+
+// ─────────────────────────────────────────────
+// HALLWAY (Diele)
+// Front door: NW corner of Diele, gap x=3.0–4.0 on north wall (z=0)
+// Govee lamp 1: NE corner x≈5.2, z≈0
+// ─────────────────────────────────────────────
+
+// Front door — solid door panel in NW gap, opens inward (south)
+const doorMat = std(0xd8c8a8, 0.55, 0.08);
+const doorW = 1.0;  // x=3.0–4.0
+sadd(box(doorW, 2.20, 0.06, doorMat), R.diele.x + doorW/2, 1.10, W_T/2 + 0.03);
+// Door frame
+const doorFrameMat = std(0xf0ebe0, 0.5, 0.05);
+sadd(box(0.06, 2.26, 0.08, doorFrameMat), R.diele.x,          1.13, W_T/2 + 0.03); // west jamb
+sadd(box(0.06, 2.26, 0.08, doorFrameMat), R.diele.x + doorW,  1.13, W_T/2 + 0.03); // east jamb
+sadd(box(doorW+0.06, 0.06, 0.08, doorFrameMat), R.diele.x + doorW/2, 2.26, W_T/2 + 0.03); // top rail
+// Door handle
+sadd(box(0.06, 0.06, 0.12, M.brightMetal), R.diele.x + doorW - 0.10, 1.10, W_T/2 + 0.08);
+
+// Shoe cabinet — next to Govee lamp 1 in NE corner of hallway, away from door
+sadd(box(0.60,0.78,0.30,M.wood), R.diele.x+R.diele.w-0.82, 0.39, 0.50);
+// Hallway rug
+sadd(box(1.6, 0.022, 0.9, M.rug), 4.1, 0.011, 1.65);
+
+// ─────────────────────────────────────────────
+// KITCHEN — galley layout (no island)
+// North wall: base + wall cabinets, sink, hob
+// West wall of kitchen (x≈5.2): base + wall cabinets facing east
+// East wall (x≈10): tall fridge + base cabinets
+// Dark/black worktops matching real apartment
+// ─────────────────────────────────────────────
+const kitchenTopDark = std(0x1a1a1c, 0.25, 0.55);  // dark worktop like real apt
+
+// North wall base cabinets — full run x=5.2–10
+sadd(box(4.6, 0.90, 0.60, M.kitchenCab), 7.6, 0.45, 0.35);
+sadd(box(4.6, 0.04, 0.65, kitchenTopDark), 7.6, 0.93, 0.375);
+// Cabinet door faces
+for (let i=0; i<4; i++) {
+  sadd(box(1.1, 0.86, 0.04, M.kitchenFront), 5.5+i*1.15, 0.45, 0.69);
+  sadd(box(0.022, 0.08, 0.022, M.darkMetal), 5.5+i*1.15+0.42, 0.45, 0.72);
+}
+// North wall upper cabinets
+sadd(box(4.6, 0.75, 0.38, M.kitchenCab), 7.6, 1.95, 0.24);
+for (let i=0; i<4; i++)
+  sadd(box(1.1, 0.71, 0.04, M.kitchenFront), 5.5+i*1.15, 1.95, 0.47);
+
+// Sink — left side of north wall worktop
+sadd(box(0.54, 0.065, 0.40, kitchenTopDark), 6.2, 0.96, 0.28);
+sadd(box(0.44, 0.04, 0.32, M.darkMetal), 6.2, 0.93, 0.27);
+// Tap
+sadd(cyl(0.018,0.018,0.22,8,M.brightMetal), 6.2, 1.04, 0.22);
+const tapHead = box(0.16,0.018,0.018,M.brightMetal);
+tapHead.position.set(6.2, 1.16, 0.28); scene3.add(tapHead);
+
+// Hob — right side of north wall worktop (2-burner electric, black)
+sadd(box(0.58, 0.025, 0.50, kitchenTopDark), 8.4, 0.942, 0.32);
+for (const [dx,dz] of [[-0.14,-0.11],[0.14,-0.11]])  // 2-burner
+  sadd(cyl(0.085,0.095,0.012,20,M.darkMetal), 8.4+dx, 0.958, 0.32+dz);
+
+// East wall tall fridge (x≈9.72, z≈0.7–2.1)
+sadd(box(0.60, 1.90, 1.30, M.kitchenCab), 9.73, 0.95, 0.95);
+sadd(box(0.04, 1.88, 1.28, M.kitchenFront), 9.42, 0.95, 0.95);
+sadd(box(0.022, 0.06, 0.022, M.darkMetal), 9.43, 1.05, 0.96);
+// Fridge magnets (small colored dots)
+for (let i=0; i<8; i++) {
+  const mx = 9.41, mz = 0.35+i*0.18, my = 0.8+((i%3)*0.25);
+  sadd(sph(0.030, 6, new THREE.MeshStandardMaterial({
+    color: [0xdd3333,0x3366cc,0xffcc00,0x44aa44,0xee6622,0x9944bb,0xdddddd,0xff8844][i],
+    roughness:0.7, emissive:[0xdd3333,0x3366cc,0xffcc00,0x44aa44,0xee6622,0x9944bb,0xdddddd,0xff8844][i],
+    emissiveIntensity:0.15
+  })), mx, my, mz);
+}
+// East wall lower base cabinets south of fridge
+sadd(box(0.58, 0.90, 1.10, M.kitchenCab), 9.73, 0.45, 2.3);
+sadd(box(0.62, 0.04, 1.10, kitchenTopDark), 9.76, 0.93, 2.3);
+sadd(box(0.04, 0.86, 1.06, M.kitchenFront), 9.42, 0.45, 2.3);
+sadd(box(0.022, 0.08, 0.022, M.darkMetal), 9.43, 0.45, 2.35);
+
+// West wall of kitchen (x≈5.2) — cabinets facing east (the left wall in galley)
+// Base cabinets along west kitchen wall z=0.15–2.6
+sadd(box(0.55, 0.90, 2.50, M.kitchenCab), 5.48, 0.45, 1.40);
+sadd(box(0.60, 0.04, 2.55, kitchenTopDark), 5.50, 0.93, 1.40);
+// Door faces (east-facing on west wall) — only north door; south slot is the washer
+sadd(box(0.04, 0.86, 1.18, M.kitchenFront), 5.78, 0.45, 0.70);  // north door only
+// Upper wall cabinets on west wall
+sadd(box(0.38, 0.75, 2.35, M.kitchenCab), 5.38, 1.95, 1.35);
+for (let i=0; i<2; i++)
+  sadd(box(0.04, 0.71, 1.10, M.kitchenFront), 5.57, 1.95, 0.72+i*1.26);
+
+// (counter ledge at kitchen opening removed — was floating visually)
+
+// Trailing plant hanging above kitchen opening (visible in photos — on top of cabinets)
+const kitHangPlant = makeTallPlant(0.75);
+kitHangPlant.position.set(9.6, 0.93, 2.72); scene3.add(kitHangPlant);
+// Small kitchen plant on west-wall worktop
+const kitPlant = makePlant(0.72); kitPlant.position.set(5.62, 0.93, 2.35); scene3.add(kitPlant);
+// Over-sink pendant
+sadd(sph(0.065, 8, EMIT.ceilingLed), 6.2, 2.15, 0.28);
+sadd(cyl(0.005,0.005,0.25,6,M.darkMetal), 6.2, 2.28, 0.28);
+// Under-cabinet strip lights (visible glow on north wall cabinets)
+const stripGlow = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.015, 0.04),
+  new THREE.MeshStandardMaterial({color:0xfff8e0,emissive:0xfff0c0,emissiveIntensity:1.2}));
+stripGlow.position.set(7.6, 1.595, 0.56); scene3.add(stripGlow);
+
+// ── Washing machine — flush under west kitchen counter ────────
+// ── Washing machine — replaces south cabinet door slot (z≈1.37–2.55) ──
+// Front face flush with cabinet doors at x=5.78, centre z=1.96
+// Body behind front face, fitting under counter (counter top y=0.93)
+const WX = 5.78;   // front face x (flush with other cabinet doors)
+const WZ = 1.96;   // z centre of south cabinet slot
+const washerMat = new THREE.MeshStandardMaterial({color:0xeceae6, roughness:0.30, metalness:0.06});
+// White body box — body depth goes west into cabinet
+sadd(box(0.50, 0.88, 1.10, washerMat), WX - 0.27, 0.44, WZ);
+// Control panel strip across top front (dark)
+sadd(box(0.04, 0.09, 1.08, new THREE.MeshStandardMaterial({color:0x111116,roughness:0.3,metalness:0.7})), WX + 0.01, 0.87, WZ);
+// White front face panel (east-facing, same plane as cabinet doors)
+sadd(box(0.04, 0.86, 1.08, new THREE.MeshStandardMaterial({color:0xe9e6e1,roughness:0.3,metalness:0.05})), WX + 0.01, 0.44, WZ);
+// Porthole ring bezel — cylinder rotated so circular face points east (X axis)
+const portholeRing = cyl(0.21, 0.21, 0.05, 32, new THREE.MeshStandardMaterial({color:0x888888,roughness:0.12,metalness:0.85}));
+portholeRing.rotation.z = Math.PI / 2;
+portholeRing.position.set(WX + 0.03, 0.42, WZ); scene3.add(portholeRing);
+// Drum glass inside porthole
+const portholeGlass = cyl(0.17, 0.17, 0.06, 32, new THREE.MeshStandardMaterial({color:0x060809,roughness:0.04,metalness:0.1,transparent:true,opacity:0.90}));
+portholeGlass.rotation.z = Math.PI / 2;
+portholeGlass.position.set(WX + 0.04, 0.42, WZ); scene3.add(portholeGlass);
+// Filter access cap bottom-centre
+const filterCap = cyl(0.04, 0.04, 0.03, 12, new THREE.MeshStandardMaterial({color:0xbbbbbb,roughness:0.2,metalness:0.7}));
+filterCap.rotation.z = Math.PI / 2;
+filterCap.position.set(WX + 0.03, 0.07, WZ); scene3.add(filterCap);
+// Status indicator dot on control panel
+washerLedMat = new THREE.MeshStandardMaterial({color:0xcc2222, emissive:0xcc0000, emissiveIntensity:1.2});
+sadd(sph(0.018, 8, washerLedMat), WX + 0.03, 0.88, WZ - 0.40);
+makePL('washer', WX, 0.5, WZ, 0x44aaff, 0.0, 0.01);
+
+// ─────────────────────────────────────────────
+// LOGGIA
+// ─────────────────────────────────────────────
+for (const [cx,cz] of [[3.3,9.5],[6.7,9.5]]) {
+  sadd(box(0.72,0.34,1.0,M.loungeFab), cx, -0.15+0.17, cz);
+  const lb=box(0.72,0.54,0.14,M.loungeFab);
+  lb.position.set(cx,-0.15+0.34+0.27,cz-0.46); lb.rotation.x=-0.22; scene3.add(lb);
+}
+sadd(cyl(0.34,0.34,0.045,18,M.woodLight), 5.0, -0.15+0.65, 9.5);
+sadd(cyl(0.045,0.055,0.62,8,M.darkMetal), 5.0, -0.15+0.31, 9.5);
+sadd(sph(0.045,8,EMIT.warmGlow), 5.0,-0.15+0.72,9.5);
+const logP1=makeTallPlant(1.05); logP1.position.set(0.35,-0.15,9.8); scene3.add(logP1);
+const logP2=makeTallPlant(1.1); logP2.position.set(9.5,-0.15,9.8); scene3.add(logP2);
+const lantern=box(0.24,0.38,0.24,M.darkMetal);
+lantern.position.set(8.7,-0.15+0.19,9.1); scene3.add(lantern);
+sadd(new THREE.Mesh(new THREE.BoxGeometry(0.16,0.28,0.16),EMIT.warmGlow), 8.7,-0.15+0.19,9.1);
+
+// ─────────────────────────────────────────────
+// CEILING SPOT LIGHTS (kitchen only — living room fixtures removed per user request)
+// ─────────────────────────────────────────────
+for (const [cx,cz] of [[7.8, 1.2]]) {
+  const base = cyl(0.09,0.09,0.06,16,M.darkMetal);
+  base.position.set(cx, W_H, cz); scene3.add(base);
+  sadd(sph(0.05,8,EMIT.ceilingLed), cx, W_H-0.04, cz);
+  const sp = new THREE.SpotLight(0xfff0d0, 1.8, 6, Math.PI*0.18, 0.35, 1.5);
+  sp.position.set(cx, W_H-0.05, cz);
+  sp.target.position.set(cx, 0, cz);
+  scene3.add(sp); scene3.add(sp.target);
+}
+
+// ─────────────────────────────────────────────
+// ROOM SELECTION TARGETS
+// ─────────────────────────────────────────────
+const roomTargets = [];
+const ROOMS = [
+  // camOff = camera offset from target when room is selected (forced, ignores user rotation)
+  // Living: SE view looking NW — matches reference image #21
+  { id:'living',   label:'Living / Dining', cx:7.2, cz:6.0, lx:6.5, lz:4.8, camOff:[11, 15, 17] },
+  { id:'bedroom',  label:'Bedroom',         cx:2.0, cz:5.8, lx:2.0, lz:5.8, camOff:[-9, 13, 14] },
+  { id:'kitchen',  label:'Kitchen',         cx:8.0, cz:1.5, lx:8.0, lz:1.5, camOff:[-9, 13, 12] },
+  { id:'hall',     label:'Hallway',         cx:4.1, cz:1.4, lx:4.1, lz:1.4, camOff:[-8, 11, 11] },
+  { id:'loggia',   label:'Balcony',         cx:5.0, cz:9.5, lx:5.0, lz:9.5, camOff:[-8, 10, 14] },
+  { id:'bathroom', label:'Bathroom',        cx:1.4, cz:1.4, lx:1.4, lz:1.4, camOff:[-8, 11, 11] },
+];
+for (const room of ROOMS) {
+  const t = new THREE.Mesh(
+    new THREE.PlaneGeometry(room.id==='loggia'?9:3.5, room.id==='loggia'?1.8:3.5),
+    new THREE.MeshBasicMaterial({ visible:false, side:THREE.DoubleSide })
+  );
+  t.rotation.x=-Math.PI/2; t.position.set(room.cx, 0.05, room.cz);
+  t.userData={room}; scene3.add(t); roomTargets.push(t);
+}
+
+// ─────────────────────────────────────────────
+// CAMERA ANIMATION
+// ─────────────────────────────────────────────
+let camAnim=null, selectedRoom=null;
+
+// ─────────────────────────────────────────────
+// PHASE 3 — DEVICE DATA + HOTSPOTS
+// ─────────────────────────────────────────────
+const ROOM_DEVICES = {
+  living:   ['tv-backlight','bar-light','pendant-1','pendant-2','couch-light','arc-lamp','govee-floor-1'],
+  bedroom:  ['bedroom-main'],
+  kitchen:  ['kitchen-light','washer'],
+  hall:     ['govee-hall'],
+  loggia:   ['loggia-light'],
+  bathroom: [],
+};
+const DEVICE_META = {
+  'tv-backlight':   { label:'TV Ambilight',      icon:'📺', type:'light'     },
+  'bar-light':      { label:'Bar Light',          icon:'🍾', type:'light'     },
+  'pendant-1':      { label:'Living Room Light 1',icon:'💡', type:'light'     },
+  'pendant-2':      { label:'Living Room Light 2',icon:'💡', type:'light'     },
+  'couch-light':    { label:'Couch LED',          icon:'🛋', type:'light'     },
+  'arc-lamp':       { label:'Lamp Shade',          icon:'🔆', type:'light'     },
+  'govee-floor-1':  { label:'Govee Floor Lamp',   icon:'🌈', type:'light'     },
+  'bedroom-main':   { label:'Cloud Light',       icon:'☁️', type:'light'     },
+  'kitchen-light':  { label:'Kitchen Light',      icon:'💡', type:'light'     },
+  'washer':         { label:'Washer',             icon:'🫧', type:'appliance' },
+  'loggia-light':   { label:'Balcony Light',      icon:'🌿', type:'light'     },
+  'govee-hall':     { label:'Hall Govee Lamp',    icon:'🌈', type:'light'     },
+};
+const ROOM_ICONS = { living:'🛋', bedroom:'🌙', kitchen:'🍳', hall:'🚪', loggia:'🌿', bathroom:'🚿' };
+
+const ROOM_SCENES = {
+  living:   ['movie','relax','dinner','party'],
+  bedroom:  ['goodnight','relax'],
+  kitchen:  ['dinner','relax'],
+  hall:     ['relax','party'],
+  loggia:   ['relax','goodnight'],
+  bathroom: [],
+};
+const SCENE_LABELS = {
+  movie:'🎬 Movie', relax:'🌿 Relax', dinner:'🍷 Dinner',
+  party:'🎉 Party', goodnight:'🌙 Night',
+};
+
+// 6 preset colour swatches per light device
+const COLOR_PRESETS = [
+  { hex:'#FFE4B5', rgb:[255,228,181], label:'Warm White'  },
+  { hex:'#F0F4FF', rgb:[240,244,255], label:'Cool White'  },
+  { hex:'#FF6B35', rgb:[255,107,53],  label:'Sunset'      },
+  { hex:'#0EA5E9', rgb:[14,165,233],  label:'Ocean Blue'  },
+  { hex:'#8B5CF6', rgb:[139,92,246],  label:'Violet'      },
+  { hex:'#F43F5E', rgb:[244,63,94],   label:'Rose'        },
+];
+
+let activeIroPicker = null;
+let activeIroId = null;
+
+function openIroPicker(id, wrapEl) {
+  // Close any existing picker
+  if (activeIroId && activeIroId !== id) {
+    const prev = document.getElementById(`iro-wrap-${activeIroId}`);
+    if (prev) prev.classList.remove('open');
+    if (activeIroPicker) { activeIroPicker = null; }
+  }
+  if (activeIroId === id && wrapEl.classList.contains('open')) {
+    wrapEl.classList.remove('open');
+    activeIroPicker = null; activeIroId = null;
+    return;
+  }
+  wrapEl.classList.add('open');
+  activeIroId = id;
+  // Build iro picker if not already built
+  if (!wrapEl._iroPicker) {
+    const st = lightState[id];
+    const [r,g,b] = st.color || [255,228,181];
+    wrapEl._iroPicker = new iro.ColorPicker(wrapEl, {
+      width: 180,
+      color: `rgb(${r},${g},${b})`,
+      layout: [
+        { component: iro.ui.Wheel },
+        { component: iro.ui.Slider, options: { sliderType: 'value' } },
+      ],
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.15)',
+    });
+    wrapEl._iroPicker.on('color:change', (color) => {
+      const { r: cr, g: cg, b: cb } = color.rgb;
+      lightState[id].color = [Math.round(cr), Math.round(cg), Math.round(cb)];
+      applyLightState();
+      // Deactivate all swatches for this device (custom colour selected)
+      const row = document.querySelector(`.color-swatch-row[data-id="${id}"]`);
+      if (row) row.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+    });
+  }
+  activeIroPicker = wrapEl._iroPicker;
+}
+
+function refreshPanelState(room) {
+  const devices = ROOM_DEVICES[room.id] || [];
+  for (const id of devices) {
+    const st = lightState[id];
+    const pill = panelCards.querySelector(`.toggle-pill[data-id="${id}"]`);
+    if (pill) pill.classList.toggle('on', st.on);
+    const statusEl = document.getElementById(`status-${id}`);
+    if (statusEl) statusEl.textContent = st.on ? 'ON' : 'OFF';
+    if (panelSliders[id]) panelSliders[id].set(Math.round(st.brightness * 100));
+    // Update active swatch
+    const row = document.querySelector(`.color-swatch-row[data-id="${id}"]`);
+    if (row) {
+      const [cr, cg, cb] = st.color || [255,228,181];
+      row.querySelectorAll('.color-swatch').forEach(sw => {
+        const [pr, pg, pb] = sw.dataset.rgb.split(',').map(Number);
+        sw.classList.toggle('active', pr===cr && pg===cg && pb===cb);
+      });
+    }
+    // Update iro picker colour if open
+    if (activeIroId === id && activeIroPicker) {
+      const [cr,cg,cb] = st.color || [255,228,181];
+      activeIroPicker.color.set(`rgb(${cr},${cg},${cb})`);
+    }
+  }
+  // Panel scenes active state
+  const sceneRow = document.getElementById('panel-scenes-row');
+  if (sceneRow) {
+    sceneRow.querySelectorAll('.panel-scene-btn').forEach(btn => btn.classList.remove('active'));
+  }
+  // Room master power
+  const lightDevices = devices.filter(i => DEVICE_META[i]?.type === 'light');
+  const roomIsOn = lightDevices.some(i => lightState[i]?.on);
+  const powerBtn = document.getElementById('room-power-toggle');
+  if (powerBtn) powerBtn.classList.toggle('on', roomIsOn);
+  // Update subtitle device count
+  const subtitle = document.getElementById('panel-room-subtitle');
+  if (subtitle) subtitle.textContent = `${devices.length} device${devices.length!==1?'s':''}`;
+}
+const HOTSPOT_POSITIONS = {
+  'tv-backlight':   [5.2,  1.0, 6.5 ],  // TV screen centre — living room side (x>PX=4.2)
+  'bar-light':      [4.51, 1.6, 4.3 ],  // bar shelf mid-height
+  'pendant-1':      [8.8,  1.9, 4.2 ],  // cage pendant east — bulb ≈ 1.88m
+  'pendant-2':      [5.6,  1.9, 4.2 ],  // cage pendant west — bulb ≈ 1.88m
+  'couch-light':    [8.5,  0.3, 7.2 ],  // sofa front face centre, low angle
+  'arc-lamp':       [8.6,  2.0, 7.0 ],  // shade approximate world pos (LAMP_X=9.82, arm sweeps NW)
+  'govee-floor-1':  [4.4,  1.2, 8.58],  // govee lamp at PX+0.20, APT_D-0.22
+  'bedroom-main':   [2.1,  1.8, 6.2 ],  // cloud centre (BED_CX, BED_CZ)
+  'kitchen-light':  [7.8,  2.0, 1.4 ],  // kitchen PL at y=2.4, aim mid-height
+  'washer':         [5.78, 0.9, 1.96],  // washer WX=5.78, WZ=1.96
+  'loggia-light':   [5.0,  0.6, 9.8 ],  // loggia table, low view from north
+  'govee-hall':     [4.98, 1.2, 0.22],  // govee lamp in hallway NE corner
+};
+const hotspotMeshes = {};
+const hotspotRingEls = {}; // CSS overlay rings
+{
+  // Hotspot meshes: invisible but raycastable — use a generous sphere radius (0.32)
+  // so the click target is much larger than the visual indicator.
+  const hsMatBase = new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0.0, depthWrite: false
+  });
+  for (const [id, pos] of Object.entries(HOTSPOT_POSITIONS)) {
+    const m = new THREE.Mesh(
+      new THREE.SphereGeometry(0.32, 8, 8),
+      hsMatBase.clone()
+    );
+    m.position.set(...pos); m.visible = false; m.userData = { hotspot: id };
+    scene3.add(m); hotspotMeshes[id] = m;
+    // CSS ring overlay — positioned via world→screen projection each frame
+    // pointer-events enabled so clicking the ring itself works too (bigger target than raycasting)
+    const ring = document.createElement('div');
+    ring.className = 'hs-ring';
+    ring.style.cssText = 'display:none;position:absolute;pointer-events:all;cursor:pointer;';
+    ring.dataset.hotspot = id;
+    document.body.appendChild(ring); hotspotRingEls[id] = ring;
+  }
+}
+
+// CSS ring click — fires zoomToDevice directly so the ring itself is a reliable click target.
+// This supplements the 3D raycaster click; both routes end up at zoomToDevice.
+document.body.addEventListener('click', e => {
+  const ring = e.target.closest('.hs-ring');
+  if (ring?.dataset.hotspot) {
+    e.stopPropagation();
+    zoomToDevice(ring.dataset.hotspot);
+  }
+});
+
+// ── Panel open/close ──────────────────────────
+const panelEl = document.getElementById('room-panel');
+const panelCards = document.getElementById('room-panel-cards');
+const panelSliders = {}; // noUiSlider instances keyed by device id
+
+function openRoomPanel(room) {
+  // Close any open iro picker from previous room
+  if (activeIroId) {
+    const prev = document.getElementById(`iro-wrap-${activeIroId}`);
+    if (prev) { prev.classList.remove('open'); prev._iroPicker = null; }
+    activeIroPicker = null; activeIroId = null;
+  }
+
+  const devices = ROOM_DEVICES[room.id] || [];
+  // show hotspots
+  for (const [id, m] of Object.entries(hotspotMeshes)) {
+    m.visible = devices.includes(id);
+    hotspotRingEls[id].style.display = devices.includes(id) ? 'block' : 'none';
+  }
+  // build device rows
+  panelCards.innerHTML = '';
+  Object.values(panelSliders).forEach(s => { try { s.destroy(); } catch(e){} });
+  for (const k in panelSliders) delete panelSliders[k];
+
+  for (const id of devices) {
+    const st = lightState[id];
+    const meta = DEVICE_META[id];
+    const isOn = st.on;
+    const card = document.createElement('div');
+    card.className = 'device-card';
+    card.dataset.deviceId = id;
+
+    // Build colour swatch HTML for light devices
+    let controlsHTML = '';
+    if (meta.type === 'light') {
+      const [cr, cg, cb] = st.color || [255,228,181];
+      const swatches = COLOR_PRESETS.map(p => {
+        const isActive = p.rgb[0]===cr && p.rgb[1]===cg && p.rgb[2]===cb ? ' active' : '';
+        return `<div class="color-swatch${isActive}" title="${p.label}" data-id="${id}" data-rgb="${p.rgb.join(',')}" style="background:${p.hex}"></div>`;
+      }).join('');
+      controlsHTML = `
+        <div class="device-card-slider" id="slider-wrap-${id}"></div>
+        <div class="color-swatch-row" data-id="${id}">
+          ${swatches}
+          <div class="color-custom-btn" data-id="${id}" title="Custom colour"></div>
+        </div>
+        <div class="iro-wrap" id="iro-wrap-${id}"></div>
+      `;
+    }
+
+    card.innerHTML = `
+      <div class="device-card-main-row">
+        <span class="device-card-icon">${meta.icon}</span>
+        <div class="device-card-info">
+          <div class="device-card-name">${meta.label}</div>
+          <div class="device-card-status" id="status-${id}">${isOn ? 'ON' : 'OFF'}</div>
+        </div>
+        <button class="toggle-pill ${isOn?'on':''}" data-id="${id}"></button>
+      </div>
+      <div class="device-card-controls">${controlsHTML}</div>
+    `;
+    panelCards.appendChild(card);
+
+    if (meta.type === 'light') {
+      const wrap = card.querySelector(`#slider-wrap-${id}`);
+      const sl = noUiSlider.create(wrap, {
+        start: [Math.round(st.brightness * 100)],
+        range: { min: 0, max: 100 },
+        connect: [true, false],
+        step: 1,
+      });
+      sl.on('update', (vals) => {
+        lightState[id].brightness = parseInt(vals[0]) / 100;
+        applyLightState();
+      });
+      panelSliders[id] = sl;
+    }
+  }
+
+  // Room scenes strip
+  const roomSceneIds = ROOM_SCENES[room.id] || [];
+  if (roomSceneIds.length > 0) {
+    const scenesDiv = document.createElement('div');
+    scenesDiv.id = 'panel-scenes';
+    scenesDiv.innerHTML = `
+      <div id="panel-scenes-title">Scenes</div>
+      <div id="panel-scenes-row">
+        ${roomSceneIds.map(sid =>
+          `<button class="panel-scene-btn" data-scene="${sid}" data-room="${room.id}">${SCENE_LABELS[sid]||sid}</button>`
+        ).join('')}
+      </div>
+    `;
+    panelCards.appendChild(scenesDiv);
+    document.getElementById('panel-scenes-row').addEventListener('click', e => {
+      const btn = e.target.closest('.panel-scene-btn');
+      if (!btn) return;
+      const sceneId = btn.dataset.scene;
+      const roomId = btn.dataset.room;
+      const sceneDef = SCENES[sceneId];
+      if (!sceneDef) return;
+      const roomDevices = ROOM_DEVICES[roomId] || [];
+      for (const [did, [on, bri]] of Object.entries(sceneDef)) {
+        if (roomDevices.includes(did) && lightState[did]) {
+          lightState[did].on = on;
+          lightState[did].brightness = bri;
+        }
+      }
+      applyLightState();
+      refreshPanelState(room);
+      document.getElementById('panel-scenes-row')?.querySelectorAll('.panel-scene-btn')
+        .forEach(b => b.classList.toggle('active', b === btn));
+    });
+  }
+
+  document.getElementById('room-panel-title').textContent = room.label;
+  document.getElementById('panel-room-icon').textContent = ROOM_ICONS[room.id] || '';
+  const subtitle = document.getElementById('panel-room-subtitle');
+  if (subtitle) subtitle.textContent = `${devices.length} device${devices.length!==1?'s':''}`;
+
+  // Room master power toggle — on if ANY light device in room is on
+  const lightDevices = devices.filter(id => DEVICE_META[id]?.type === 'light');
+  const roomIsOn = lightDevices.some(id => lightState[id]?.on);
+  const powerBtn = document.getElementById('room-power-toggle');
+  powerBtn.classList.toggle('on', roomIsOn);
+  powerBtn.dataset.room = room.id;
+
+  panelEl.style.visibility = 'visible';
+  gsap.to(panelEl, { x: 0, opacity: 1, duration: 0.48, ease: 'power3.out' });
+  gsap.to('#canvas-container', { right: '300px', duration: 0.48, ease: 'power3.out' });
+  panelEl.style.pointerEvents = 'auto';
+}
+
+function closeRoomPanel() {
+  gsap.to(panelEl, { x: 300, opacity: 0, duration: 0.32, ease: 'power2.in',
+    onComplete: () => { panelEl.style.visibility = 'hidden'; panelEl.style.pointerEvents = 'none'; }
+  });
+  gsap.to('#canvas-container', { right: '0px', duration: 0.32, ease: 'power2.in' });
+  for (const m of Object.values(hotspotMeshes)) m.visible = false;
+  for (const r of Object.values(hotspotRingEls)) r.style.display = 'none';
+  closeBubble();
+}
+
+// Panel toggle pills + colour swatches + custom picker button (single delegated listener)
+panelCards.addEventListener('click', e => {
+  // Toggle pill — handle first, stop propagation so row click doesn't fire
+  const btn = e.target.closest('.toggle-pill');
+  if (btn && btn.dataset.id) {
+    e.stopPropagation();
+    const id = btn.dataset.id;
+    lightState[id].on = !lightState[id].on;
+    btn.classList.toggle('on', lightState[id].on);
+    const statusEl = document.getElementById(`status-${id}`);
+    if (statusEl) statusEl.textContent = lightState[id].on ? 'ON' : 'OFF';
+    applyLightState();
+    if (activeBubbleId === id) {
+      document.getElementById('bubble-toggle').classList.toggle('on', lightState[id].on);
+    }
+    // Select this card
+    selectPanelDevice(id);
+    return;
+  }
+  // Colour swatch
+  const swatch = e.target.closest('.color-swatch');
+  if (swatch) {
+    const id = swatch.dataset.id;
+    const [r,g,b] = swatch.dataset.rgb.split(',').map(Number);
+    lightState[id].color = [r,g,b];
+    applyLightState();
+    const row = swatch.closest('.color-swatch-row');
+    row.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+    swatch.classList.add('active');
+    if (activeIroId === id) {
+      const wrap = document.getElementById(`iro-wrap-${id}`);
+      if (wrap) wrap.classList.remove('open');
+      activeIroPicker = null; activeIroId = null;
+    }
+    const wrap = document.getElementById(`iro-wrap-${id}`);
+    if (wrap?._iroPicker) wrap._iroPicker.color.set(`rgb(${r},${g},${b})`);
+    return;
+  }
+  // Custom colour picker button
+  const customBtn = e.target.closest('.color-custom-btn');
+  if (customBtn) {
+    const id = customBtn.dataset.id;
+    const wrap = document.getElementById(`iro-wrap-${id}`);
+    if (wrap) openIroPicker(id, wrap);
+    return;
+  }
+  // Device main row click → select + zoom
+  const card = e.target.closest('.device-card');
+  if (card?.dataset.deviceId) {
+    selectPanelDevice(card.dataset.deviceId);
+  }
+});
+
+function selectPanelDevice(id) {
+  // Highlight selected card and zoom camera
+  panelCards.querySelectorAll('.device-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.deviceId === id);
+  });
+  zoomCameraToDevice(id);
+}
+
+// ── Bubble popup ─────────────────────────────
+const bubbleEl = document.getElementById('bubble');
+let activeBubbleId = null;
+let bubbleSlider = null;
+
+function openBubble(id) {
+  activeBubbleId = id;
+  const st = lightState[id];
+  const meta = DEVICE_META[id];
+  document.getElementById('bubble-title').textContent = meta.icon + '  ' + meta.label;
+  const tog = document.getElementById('bubble-toggle');
+  tog.className = 'toggle-pill' + (st.on ? ' on' : '');
+  tog.dataset.id = id;
+  // destroy old slider
+  if (bubbleSlider) { try { bubbleSlider.destroy(); } catch(e){} bubbleSlider = null; }
+  const wrap = document.getElementById('bubble-slider-wrap');
+  wrap.innerHTML = '';
+  if (meta.type === 'light') {
+    bubbleSlider = noUiSlider.create(wrap, {
+      start: [Math.round(st.brightness * 100)],
+      range: { min: 0, max: 100 }, connect: [true, false], step: 1,
+    });
+    bubbleSlider.on('update', (vals) => {
+      lightState[id].brightness = parseInt(vals[0]) / 100;
+      applyLightState();
+      // sync panel slider
+      if (panelSliders[id]) panelSliders[id].set(vals[0]);
+    });
+  }
+  bubbleEl.style.display = 'block';
+  gsap.fromTo(bubbleEl, { scale: 0.7, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.28, ease: 'back.out(1.6)' });
+}
+
+function closeBubble() {
+  if (!activeBubbleId) return;
+  gsap.to(bubbleEl, { scale: 0.8, opacity: 0, duration: 0.18, ease: 'power2.in',
+    onComplete: () => { bubbleEl.style.display = 'none'; activeBubbleId = null; }
+  });
+}
+
+document.getElementById('bubble-close').addEventListener('click', closeBubble);
+document.getElementById('bubble-toggle').addEventListener('click', e => {
+  const id = e.target.dataset.id; if (!id) return;
+  lightState[id].on = !lightState[id].on;
+  e.target.classList.toggle('on', lightState[id].on);
+  applyLightState();
+  // sync panel card
+  const panelPill = panelCards.querySelector(`.toggle-pill[data-id="${id}"]`);
+  if (panelPill) panelPill.classList.toggle('on', lightState[id].on);
+  const statusEl = document.getElementById(`status-${id}`);
+  if (statusEl) statusEl.textContent = lightState[id].on ? 'ON' : 'OFF';
+});
+
+document.getElementById('reset-view-btn').addEventListener('click', resetCamera);
+document.getElementById('panel-back').addEventListener('click', resetCamera);
+
+// Room master power toggle — turns all light devices in the room on or off
+document.getElementById('room-power-toggle').addEventListener('click', e => {
+  const roomId = e.target.dataset.room; if (!roomId) return;
+  const devices = ROOM_DEVICES[roomId] || [];
+  const lightDevices = devices.filter(id => DEVICE_META[id]?.type === 'light');
+  const nowOn = e.target.classList.contains('on');
+  const newState = !nowOn;
+  lightDevices.forEach(id => { if (lightState[id]) lightState[id].on = newState; });
+  e.target.classList.toggle('on', newState);
+  applyLightState();
+  // refresh all device card toggles + status labels
+  lightDevices.forEach(id => {
+    const pill = panelCards.querySelector(`.toggle-pill[data-id="${id}"]`);
+    if (pill) pill.classList.toggle('on', newState);
+    const statusEl = document.getElementById(`status-${id}`);
+    if (statusEl) statusEl.textContent = newState ? 'ON' : 'OFF';
+  });
+});
+
+// ─────────────────────────────────────────────
+// CAMERA HELPERS — preserve user's orbit angle
+// ─────────────────────────────────────────────
+// Returns the camera offset vector relative to its current target.
+// We reuse this offset when zooming so the user's rotated view is preserved.
+function getCamOffset() {
+  return new THREE.Vector3().subVectors(camera.position, controls.target);
+}
+
+// Animate camera to look at a new target, optionally forcing a new offset.
+// If forceOffset is null, preserves the current offset (user's rotation stays).
+// If forceOffset is provided, smoothly transitions to that offset too.
+// endSize optionally animates the orthographic camera frustum (zoom level).
+// targetY lets us look at the device's actual height instead of the floor.
+function animateCameraTo(newTargetX, newTargetZ, forceOffset=null, dur=1000, endSize=null, targetY=0) {
+  const startPos   = camera.position.clone();
+  const startTarget = controls.target.clone();
+  const currentOffset = getCamOffset();
+  const endOffset  = forceOffset || currentOffset;
+  const endTarget  = new THREE.Vector3(newTargetX, targetY, newTargetZ);
+  const endPos     = endTarget.clone().add(endOffset);
+  const aspect = camera.right / camera.top;
+  const startSize  = camera.top;
+  const targetSize = endSize !== null ? endSize : startSize;
+  const t0 = performance.now();
+  camAnim = (now) => {
+    const t = Math.min((now - t0) / dur, 1);
+    const ease = t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t;
+    camera.position.lerpVectors(startPos, endPos, ease);
+    controls.target.lerpVectors(startTarget, endTarget, ease);
+    if (endSize !== null) {
+      const s = startSize + (targetSize - startSize) * ease;
+      camera.left = -s * aspect; camera.right = s * aspect;
+      camera.top = s; camera.bottom = -s;
+      camera.updateProjectionMatrix();
+    }
+    controls.update();
+    if (t >= 1) camAnim = null;
+  };
+}
+
+let userHasRotated = false;
+// Cancel any running camera animation the moment the user touches OrbitControls.
+// Without this, animateCameraTo fights user input for its full duration.
+controls.addEventListener('start', () => {
+  camAnim = null;   // stop animation immediately — user has control
+  userHasRotated = true;
+  document.getElementById('reset-view-btn').classList.add('visible');
+});
+
+function selectRoom(room) {
+  selectedRoom = room;
+  setActiveRoomBtn(room.id);
+  const lbl = document.getElementById('room-label');
+  lbl.textContent = room.label; lbl.classList.add('visible');
+  setTimeout(() => lbl.classList.remove('visible'), 2000);
+  // Always animate to the room's baked camera angle (user's rotation is overridden).
+  // zoomToDevice will then preserve that angle when zooming into a hotspot.
+  const roomOffset = new THREE.Vector3(...room.camOff);
+  animateCameraTo(room.lx, room.lz, roomOffset, 1100, CAM_SIZE);
+  openRoomPanel(room);
+}
+
+// Per-device camera offsets: camera position = hotspot + offset, looking at hotspot.
+// Null means use azimuth-preserved default (same angle as overview).
+const DEVICE_CAM_OFFSETS = {
+  'tv-backlight':  new THREE.Vector3( 1.2, 0.8,  0.3),  // east of TV, looking west at screen
+  'arc-lamp':      new THREE.Vector3( 0.8, 0.2, -0.5),  // SE below shade, looking NW up at drum
+  'bar-light':     new THREE.Vector3( 1.2, 0.2, -0.3),  // east of bar shelf, looking west at bottles/glow
+  'couch-light':   new THREE.Vector3(-1.4, 0.7,  0.4),  // SW of sofa front, angled to see LED glow
+  'kitchen-light': new THREE.Vector3(-0.5, 0.3,  0.8),  // south of kitchen ceiling, looking up-north
+  'washer':        new THREE.Vector3( 1.0, 0.8,  0.0),  // east of washer looking west
+  'loggia-light':  new THREE.Vector3( 0.2, 1.2, -2.5),  // north of loggia, angled down to table
+  'govee-floor-1': new THREE.Vector3( 0.6, 0.8, -0.7),  // east/north of lamp, looking at glowing pole
+  'govee-hall':    new THREE.Vector3(-0.2, 0.6,  1.2),  // south of hall lamp, looking north up the pole
+};
+
+function zoomToDevice(id) {
+  const pos = HOTSPOT_POSITIONS[id];
+  if (!pos) return;
+  const deviceOffset = DEVICE_CAM_OFFSETS[id] ?? (() => {
+    const currentOffset = getCamOffset();
+    const azimuth = Math.atan2(currentOffset.x, currentOffset.z);
+    const closeRadius = 0.7, closeHeight = 0.9;
+    return new THREE.Vector3(Math.sin(azimuth)*closeRadius, closeHeight, Math.cos(azimuth)*closeRadius);
+  })();
+  animateCameraTo(pos[0], pos[2], deviceOffset, 750, 1.1, pos[1]);
+  openBubble(id);
+  // Briefly flash the selected ring
+  Object.entries(hotspotRingEls).forEach(([rid, ring]) => ring.classList.toggle('selected', rid === id));
+  setTimeout(() => hotspotRingEls[id]?.classList.remove('selected'), 600);
+}
+
+function zoomCameraToDevice(id) {
+  // Zoom only — no bubble. Used when panel is already open.
+  const pos = HOTSPOT_POSITIONS[id];
+  if (!pos) return;
+  const deviceOffset = DEVICE_CAM_OFFSETS[id] ?? (() => {
+    const currentOffset = getCamOffset();
+    const azimuth = Math.atan2(currentOffset.x, currentOffset.z);
+    const closeRadius = 0.7, closeHeight = 0.9;
+    return new THREE.Vector3(Math.sin(azimuth)*closeRadius, closeHeight, Math.cos(azimuth)*closeRadius);
+  })();
+  animateCameraTo(pos[0], pos[2], deviceOffset, 600, 1.1, pos[1]);
+  // Highlight selected card in panel
+  panelCards.querySelectorAll('.device-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.deviceId === id);
+  });
+}
+
+function resetCamera() {
+  selectedRoom = null;
+  setActiveRoomBtn(null);
+  userHasRotated = false;
+  document.getElementById('reset-view-btn').classList.remove('visible');
+  const defaultOffset = new THREE.Vector3(
+    DEFAULT_CAM.x - DEFAULT_CAM.tx,
+    DEFAULT_CAM.y,
+    DEFAULT_CAM.z - DEFAULT_CAM.tz
+  );
+  animateCameraTo(DEFAULT_CAM.tx, DEFAULT_CAM.tz, defaultOffset, 900, CAM_SIZE);
+  closeRoomPanel();
+}
+
+// ─────────────────────────────────────────────
+// RAYCASTING
+// ─────────────────────────────────────────────
+const raycaster=new THREE.Raycaster(), mouse=new THREE.Vector2();
+renderer.domElement.addEventListener('click',(e)=>{
+  const rect=renderer.domElement.getBoundingClientRect();
+  mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouse,camera);
+  const hits=raycaster.intersectObjects(roomTargets);
+  if(hits.length>0) { selectRoom(hits[0].object.userData.room); return; }
+  // Check hotspot dots
+  const visibleHotspots = Object.values(hotspotMeshes).filter(m => m.visible);
+  const hsHits = raycaster.intersectObjects(visibleHotspots);
+  if(hsHits.length>0) { zoomToDevice(hsHits[0].object.userData.hotspot); return; }
+  // Click outside bubble closes it
+  if(activeBubbleId && !bubbleEl.contains(e.target)) closeBubble();
+});
+
+// ─────────────────────────────────────────────
+// D-PAD
+// ─────────────────────────────────────────────
+const focusGrid=[]; let focusRow=0,focusCol=0;
+function buildFocusGrid(){focusGrid.length=0;focusGrid.push([...document.querySelectorAll('.room-btn')]);focusGrid.push([...document.querySelectorAll('.scene-btn')]);}
+function getFocused(){const r=focusGrid[focusRow];return r?r[Math.min(focusCol,r.length-1)]:null;}
+function moveFocus(dr,dc){const nr=Math.max(0,Math.min(focusGrid.length-1,focusRow+dr));const nc=Math.max(0,Math.min((focusGrid[nr]||[]).length-1,focusCol+dc));document.querySelectorAll('.focus').forEach(el=>el.classList.remove('focus','focus-ring'));focusRow=nr;focusCol=nc;const el=getFocused();if(el){el.classList.add('focus','focus-ring');el.scrollIntoView({block:'nearest'});}}
+document.addEventListener('keydown',(e)=>{
+  const K=e.key||'',C=e.keyCode||0;
+  if(K==='ArrowUp'||C===38||C===19){e.preventDefault();moveFocus(-1,0);return;}
+  if(K==='ArrowDown'||C===40||C===20){e.preventDefault();moveFocus(1,0);return;}
+  if(K==='ArrowLeft'||C===37||C===21){e.preventDefault();moveFocus(0,-1);return;}
+  if(K==='ArrowRight'||C===39||C===22){e.preventDefault();moveFocus(0,1);return;}
+  if(K==='Enter'||K===' '||C===13||C===23){e.preventDefault();getFocused()?.click();return;}
+  if(K==='Escape'||C===27||C===4){e.preventDefault();if(selectedRoom)resetCamera();else document.querySelectorAll('.focus').forEach(el=>el.classList.remove('focus','focus-ring'));return;}
+});
+
+// ─────────────────────────────────────────────
+// PARENT FRAME BRIDGE (Couch TV postMessage)
+// ─────────────────────────────────────────────
+window.addEventListener('message', e => {
+  const d = e.data;
+  if (!d || typeof d !== 'object') return;
+  if (d.type === 'dpad') { moveFocus(d.dy||0, d.dx||0); return; }
+  if (d.type === 'ok')   { getFocused()?.click(); return; }
+  if (d.type === 'back') {
+    if (selectedRoom) resetCamera();
+    else document.querySelectorAll('.focus').forEach(el=>el.classList.remove('focus','focus-ring'));
+    return;
+  }
+});
+
+// ─────────────────────────────────────────────
+// SCENE BUTTONS
+// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// ROOM + SCENE BUTTONS
+// ─────────────────────────────────────────────
+function setActiveRoomBtn(roomId) {
+  document.querySelectorAll('.room-btn').forEach(b => b.classList.toggle('active', b.dataset.room === roomId));
+}
+
+document.querySelectorAll('.room-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const room = ROOMS.find(r => r.id === btn.dataset.room);
+    if (room) selectRoom(room);
+  });
+});
+
+document.querySelectorAll('.scene-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const preset=SCENES[btn.dataset.scene]; if(!preset)return;
+    document.querySelectorAll('.scene-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    for(const[id,[on,bri]]of Object.entries(preset)){if(lightState[id]){lightState[id].on=on;lightState[id].brightness=bri;}}
+    applyLightState();
+    // refresh panel cards if open
+    if (selectedRoom) openRoomPanel(selectedRoom);
+  });
+});
+
+// ─────────────────────────────────────────────
+// CLOCK
+// ─────────────────────────────────────────────
+function updateClock(){const n=new Date();document.getElementById('clock').textContent=n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0');}
+updateClock(); setInterval(updateClock,10000);
+
+// ─────────────────────────────────────────────
+// RESIZE
+// ─────────────────────────────────────────────
+window.addEventListener('resize',()=>{
+  const w=container.clientWidth,h=container.clientHeight,a=w/h;
+  camera.left=-CAM_SIZE*a; camera.right=CAM_SIZE*a;
+  camera.top=CAM_SIZE; camera.bottom=-CAM_SIZE;
+  camera.updateProjectionMatrix(); renderer.setSize(w,h);
+});
+
+// ─────────────────────────────────────────────
+// RENDER LOOP
+// ─────────────────────────────────────────────
+function animate(now=0) {
+  requestAnimationFrame(animate);
+  if(camAnim) camAnim(now);
+  controls.update();
+  // Pulse emissive glows
+  const p = 0.80 + 0.20*Math.sin(now*0.0010);
+  EMIT.warmGlow.emissiveIntensity = 1.1*p;
+  EMIT.warmDim.emissiveIntensity  = 0.6*p;
+  EMIT.barGlow.emissiveIntensity  = 1.2*p;
+  EMIT.pinkGlow.emissiveIntensity = 0.85*(0.75+0.25*Math.sin(now*0.0023));
+  // Hotspot 3D dots stay in scene for raycasting — but are visually transparent.
+  // The CSS ring indicator above handles the visual.
+  // (no per-frame update needed)
+  // Project hotspot ring overlays + bubble to screen
+  const cw = renderer.domElement.clientWidth, ch = renderer.domElement.clientHeight;
+  for (const [id, m] of Object.entries(hotspotMeshes)) {
+    const ring = hotspotRingEls[id];
+    if (!m.visible) { ring.style.display='none'; continue; }
+    const wp = m.position.clone().project(camera);
+    const sx = (wp.x+1)/2*cw, sy = (-wp.y+1)/2*ch;
+    ring.style.display = 'block';
+    ring.style.left = (sx - 16) + 'px'; ring.style.top = (sy - 16) + 'px';
+  }
+  if (activeBubbleId && hotspotMeshes[activeBubbleId]?.visible) {
+    const wp = hotspotMeshes[activeBubbleId].position.clone().project(camera);
+    const sx = (wp.x+1)/2*cw, sy = (-wp.y+1)/2*ch;
+    const bw = bubbleEl.offsetWidth || 210;
+    const panelOffset = panelEl.style.visibility === 'visible' ? 272 : 0;
+    bubbleEl.style.left = Math.min(sx - bw/2, cw - bw - panelOffset - 8) + 'px';
+    bubbleEl.style.top  = Math.max(8, sy - bubbleEl.offsetHeight - 16) + 'px';
+  }
+  renderer.render(scene3, camera);
+}
+
+buildFocusGrid();
+requestAnimationFrame(()=>requestAnimationFrame(()=>{
+  document.getElementById('loading').classList.add('hidden');
+  setTimeout(()=>document.getElementById('loading').remove(),750);
+}));
+animate();
+
+window.smartHome3D = {
+  selectRoom: id => { const r=ROOMS.find(r=>r.id===id); if(r) selectRoom(r); },
+  resetView:  resetCamera,
+  setLightState: (id,on,bri) => { if(lightState[id]){lightState[id].on=on;if(bri!=null)lightState[id].brightness=bri;applyLightState();} },
+  activateScene: id => { const btn=document.querySelector(`.scene-btn[data-scene="${id}"]`); if(btn) btn.click(); },
+  zoomToDevice,
+  zoomCameraToDevice,
+};
+</script>
+</body>
+</html>
